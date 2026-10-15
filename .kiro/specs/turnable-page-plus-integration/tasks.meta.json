@@ -1,0 +1,264 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1. Add turnable_page_plus dependency to pubspec.yaml": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049216881
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049229172
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049301610
+      }
+    ],
+    "2.1 Swap controller field and imports": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217032
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049307582
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049355168
+      }
+    ],
+    "2.2 Initialise and dispose PageFlipController": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217059
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049361336
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051679753
+      }
+    ],
+    "2.3 Add optional flipSettings constructor parameter to PagingWidget": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217082
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049361613
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051680138
+      }
+    ],
+    "2.4 Implement _resolvedSettings() helper": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217099
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051687773
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051771974
+      }
+    ],
+    "2.5 Implement _onPageChanged callback": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217156
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051687970
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051772255
+      }
+    ],
+    "2.6 Replace PageFlipWidget instantiation with TurnablePage in build()": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217174
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051778374
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051834398
+      }
+    ],
+    "2.7 Wire goToPage() for saved reading position and repagination": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217191
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051840142
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051917252
+      }
+    ],
+    "2.8 Remove imageData.clear() from _HighlightablePageState": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217205
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051840411
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051918808
+      }
+    ],
+    "3. Checkpoint — pagination compiles cleanly": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217223
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051944321
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053231639
+      }
+    ],
+    "4.1 Remove double-swipe state and helper": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217272
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053237986
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053320157
+      }
+    ],
+    "4.2 Simplify boundary callbacks and onPageFlip in PagingWidget construction": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217295
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053320892
+      }
+    ],
+    "4.3 Remove _resetSwipeState() calls from nextChapter() and prevChapter()": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217315
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053321191
+      }
+    ],
+    "5. Delete lib/PageFlip/ directory": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217329
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053327872
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053589604
+      }
+    ],
+    "6. Final verification checkpoint": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792049217344
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053595926
+      },
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053632291
+      }
+    ],
+    "2. Replace PageFlipWidget with TurnablePage in pagination.dart": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792051918857
+      }
+    ],
+    "4. Simplify ShowEpub double-swipe workaround": [
+      {
+        "executionId": "985ecb63-86c5-47f5-b3a8-f1a4436cf0df",
+        "chatSessionId": "sess_4cff9768-3094-471f-8671-bcec05295147",
+        "timestamp": 1792053321235
+      }
+    ]
+  }
+}

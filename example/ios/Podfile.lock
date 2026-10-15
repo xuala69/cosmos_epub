@@ -24,7 +24,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/screen_brightness_ios/ios"
 
 SPEC CHECKSUMS:
-  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   fluttertoast: 1a1c71b9fbdf68f5fef34d2c548d5038ac51c0ea
   isar_community_flutter_libs: bede843185a61a05ff364a05c9b23209523f7e0d
   screen_brightness_ios: 212d950bb99c915eee971c884f4a6c87c92cd13d

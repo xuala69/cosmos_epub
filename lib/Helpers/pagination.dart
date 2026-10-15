@@ -3,10 +3,9 @@ import 'package:cosmos_epub/Helpers/epub_content_parser.dart';
 import 'package:cosmos_epub/Helpers/html_paginator.dart';
 import 'package:cosmos_epub/Helpers/html_text_builder.dart';
 import 'package:cosmos_epub/Model/highlight_model.dart';
-import 'package:cosmos_epub/PageFlip/builders/builder.dart' as flip_cache;
-import 'package:cosmos_epub/PageFlip/page_flip_widget.dart';
+import 'package:cosmos_epub/show_epub.dart' show bookProgress;
+import 'package:turnable_page_plus/turnable_page_plus.dart';
 import 'package:cosmos_epub/Helpers/functions.dart';
-import 'package:fading_edge_scrollview/fading_edge_scrollview.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -135,6 +134,7 @@ class PagingWidget extends StatefulWidget {
   final Function(int, int) onLastPage;
   final Function(int, int)? onFirstPageBack;
   final Widget? lastWidget;
+  final FlipSettings? flipSettings; // NEW — optional, defaults to null
 
   const PagingWidget({
     super.key,
@@ -146,7 +146,7 @@ class PagingWidget extends StatefulWidget {
     this.accentColor = Colors.indigoAccent,
     this.backgroundColor = Colors.white,
     this.style = const TextStyle(color: Colors.black, fontSize: 30),
-    required this.handlerCallback(PagingTextHandler handler),
+    required this.handlerCallback,
     required this.onTextTap,
     required this.onPageFlip,
     required this.onLastPage,
@@ -155,6 +155,7 @@ class PagingWidget extends StatefulWidget {
     required this.chapterTitle,
     required this.totalChapters,
     this.lastWidget,
+    this.flipSettings, // NEW — optional, defaults to null
   });
 
   @override
@@ -164,19 +165,38 @@ class PagingWidget extends StatefulWidget {
 class _PagingWidgetState extends State<PagingWidget> {
   List<String> _pageHtmls = [];
   List<Widget> pages = [];
-  int _currentPageIndex = 0;
   Future<void> paginateFuture = Future.value();
   late RenderBox _initializedRenderBox;
 
   final _pageKey = GlobalKey();
-  final _pageController = GlobalKey<PageFlipWidgetState>();
+  late final PageFlipController _flipController;
 
   @override
   void initState() {
+    _flipController = PageFlipController();
     rePaginate();
     var handler = PagingTextHandler(paginate: rePaginate);
     widget.handlerCallback(handler);
     super.initState();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  FlipSettings _resolvedSettings() {
+    final base =
+        widget.flipSettings ??
+        FlipSettings(
+          enableInertia: true,
+          enableEasing: true,
+          flippingTime: 650,
+          swipeDistance: 48,
+          releaseCompletionThreshold: 0.38,
+          cornerTriggerAreaSize: 0.25,
+        );
+    return base.copyWith(backgroundFillColor: widget.backgroundColor);
   }
 
   void rePaginate() {
@@ -187,6 +207,18 @@ class _PagingWidgetState extends State<PagingWidget> {
         paginateFuture = _paginate();
       });
     });
+  }
+
+  void _onPageChanged(int leftIndex, int rightIndex) {
+    final newIndex = rightIndex >= 0 ? rightIndex : leftIndex;
+    widget.onPageFlip(newIndex, pages.length);
+    bookProgress.setCurrentPageIndex(widget.bookId, newIndex);
+    if (newIndex == pages.length - 1) {
+      widget.onLastPage(newIndex, pages.length);
+    }
+    if (newIndex == 0) {
+      widget.onFirstPageBack?.call(0, pages.length);
+    }
   }
 
   Future<void> _paginate() async {
@@ -228,6 +260,17 @@ class _PagingWidgetState extends State<PagingWidget> {
         onTextTap: widget.onTextTap,
       );
     }).toList();
+
+    // Restore saved reading position after pagination
+    final target = widget.starterPageIndex.clamp(
+      0,
+      pages.isEmpty ? 0 : pages.length - 1,
+    );
+    if (target > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _flipController.goToPage(target);
+      });
+    }
   }
 
   @override
@@ -257,34 +300,19 @@ class _PagingWidgetState extends State<PagingWidget> {
                       Expanded(
                         child: SizedBox.expand(
                           key: _pageKey,
-                          child: PageFlipWidget(
-                            key: _pageController,
-                            initialIndex: widget.starterPageIndex != 0
-                                ? (pages.isNotEmpty &&
-                                          widget.starterPageIndex < pages.length
-                                      ? widget.starterPageIndex
-                                      : 0)
-                                : widget.starterPageIndex,
-                            onPageFlip: (pageIndex, {bool? isForward}) {
-                              _currentPageIndex = pageIndex;
-                              widget.onPageFlip(pageIndex, pages.length);
-                              // Forward on last page → onLastPage
-                              if (isForward == true &&
-                                  _currentPageIndex == pages.length - 1) {
-                                widget.onLastPage(pageIndex, pages.length);
-                              }
-                              // Backward on first page → onFirstPage
-                              if (isForward == false &&
-                                  _currentPageIndex == 0) {
-                                widget.onFirstPageBack?.call(
-                                  pageIndex,
-                                  pages.length,
-                                );
-                              }
-                            },
-                            backgroundColor: widget.backgroundColor,
-                            lastPage: widget.lastWidget,
-                            children: pages,
+                          child: _TapDetector(
+                            onTap: widget.onTextTap,
+                            child: TurnablePage(
+                              controller: _flipController,
+                              pageCount: pages.length,
+                              pageViewMode: PageViewMode.single,
+                              pagesBoundaryIsEnabled: false,
+                              autoResponseSize: true,
+                              settings: _resolvedSettings(),
+                              onPageChanged: _onPageChanged,
+                              builder: (context, index, constraints) =>
+                                  pages[index],
+                            ),
                           ),
                         ),
                       ),
@@ -295,6 +323,38 @@ class _PagingWidgetState extends State<PagingWidget> {
             }
         }
       },
+    );
+  }
+}
+
+
+/// Detects a short tap (pointer down + up with minimal movement) without
+/// registering a GestureRecognizer that would compete with TurnablePage's
+/// flip gesture. Uses raw pointer events so the flip engine still wins drags.
+class _TapDetector extends StatefulWidget {
+  const _TapDetector({required this.child, required this.onTap});
+  final Widget child;
+  final VoidCallback onTap;
+  @override
+  State<_TapDetector> createState() => _TapDetectorState();
+}
+
+class _TapDetectorState extends State<_TapDetector> {
+  Offset? _downPos;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (e) => _downPos = e.position,
+      onPointerUp: (e) {
+        if (_downPos != null && (e.position - _downPos!).distance < 10) {
+          widget.onTap();
+        }
+        _downPos = null;
+      },
+      onPointerCancel: (_) => _downPos = null,
+      child: widget.child,
     );
   }
 }
@@ -327,9 +387,7 @@ class _HighlightablePage extends StatefulWidget {
 }
 
 class _HighlightablePageState extends State<_HighlightablePage> {
-  final _scrollController = ScrollController();
   String _lastSelectedText = '';
-  Offset? _tapDownPos;
   int _tappedParagraphStart = 0;
   int _tappedParagraphEnd = -1;
   HtmlTextBuilder? _lastBuilder;
@@ -371,8 +429,6 @@ class _HighlightablePageState extends State<_HighlightablePage> {
         _tappedParagraphEnd = end;
       },
       onHighlightChanged: () {
-        // Clear cached page images so flip animation shows updated highlights
-        flip_cache.imageData.clear();
         if (mounted) setState(() {});
       },
     );
@@ -478,59 +534,43 @@ class _HighlightablePageState extends State<_HighlightablePage> {
     final pageTextDirection = RTLHelper.getTextDirection(widget.pageHtml);
     final contentWidgets = _buildContent();
 
-    return Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (e) => _tapDownPos = e.position,
-      onPointerUp: (e) {
-        // Only trigger on simple taps (not drags/selections)
-        if (_tapDownPos != null && (e.position - _tapDownPos!).distance < 5) {
-          widget.onTextTap();
-        }
-        _tapDownPos = null;
+    // SelectionArea is kept for text highlighting but without a scroll wrapper
+    // so that TurnablePage's render object can claim horizontal drag gestures.
+    return SelectionArea(
+      onSelectionChanged: (content) {
+        _lastSelectedText = content?.plainText ?? '';
       },
-      child: SelectionArea(
-        onSelectionChanged: (content) {
-          _lastSelectedText = content?.plainText ?? '';
-        },
-        contextMenuBuilder: (context, selectableRegionState) {
-          return _PageToolbar(
-            anchor: selectableRegionState.contextMenuAnchors,
-            onCopy: () {
-              Clipboard.setData(ClipboardData(text: _lastSelectedText));
-            },
-            onSelectAll: () {
-              selectableRegionState.selectAll(SelectionChangedCause.toolbar);
-            },
-            onColorSelected: (color) {
-              _addHighlight(_lastSelectedText, color);
-              FocusManager.instance.primaryFocus?.unfocus();
-            },
-          );
-        },
-        child: Container(
-          color: widget.backgroundColor,
-          child: FadingEdgeScrollView.fromSingleChildScrollView(
-            gradientFractionOnEnd: 0.2,
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              physics: const BouncingScrollPhysics(),
-              child: Padding(
-                padding: EdgeInsets.only(
-                  bottom: 40.h,
-                  top: 60.h,
-                  left: 20.w,
-                  right: 20.w,
-                ),
-                child: DefaultTextStyle(
-                  style: widget.style.copyWith(height: 1.4),
-                  child: Directionality(
-                    textDirection: pageTextDirection,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: contentWidgets,
-                    ),
-                  ),
-                ),
+      contextMenuBuilder: (context, selectableRegionState) {
+        return _PageToolbar(
+          anchor: selectableRegionState.contextMenuAnchors,
+          onCopy: () {
+            Clipboard.setData(ClipboardData(text: _lastSelectedText));
+          },
+          onSelectAll: () {
+            selectableRegionState.selectAll(SelectionChangedCause.toolbar);
+          },
+          onColorSelected: (color) {
+            _addHighlight(_lastSelectedText, color);
+            FocusManager.instance.primaryFocus?.unfocus();
+          },
+        );
+      },
+      child: Container(
+        color: widget.backgroundColor,
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: 40.h,
+            top: 60.h,
+            left: 20.w,
+            right: 20.w,
+          ),
+          child: DefaultTextStyle(
+            style: widget.style.copyWith(height: 1.4),
+            child: Directionality(
+              textDirection: pageTextDirection,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: contentWidgets,
               ),
             ),
           ),

@@ -94,9 +94,6 @@ class ShowEpubState extends State<ShowEpub> {
   late String selectedTextStyle;
 
   bool showHeader = true;
-  bool isLastPage = false;
-  int lastSwipe = 0;
-  int prevSwipe = 0;
   bool showPrevious = false;
   bool showNext = false;
 
@@ -324,63 +321,62 @@ class ShowEpubState extends State<ShowEpub> {
                         children: [
                           StatefulBuilder(
                             builder:
-                                (
-                                  BuildContext context,
-                                  StateSetter setState,
-                                ) => Theme(
-                                  data: Theme.of(
-                                    context,
-                                  ).copyWith(canvasColor: backColor),
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
-                                      value: selectedFont,
-                                      isExpanded: true,
-                                      menuMaxHeight: 400.h,
-                                      onChanged: (newValue) {
-                                        selectedFont = newValue ?? 'Segoe';
+                                (BuildContext context, StateSetter setState) =>
+                                    Theme(
+                                      data: Theme.of(
+                                        context,
+                                      ).copyWith(canvasColor: backColor),
+                                      child: DropdownButtonHideUnderline(
+                                        child: DropdownButton<String>(
+                                          value: selectedFont,
+                                          isExpanded: true,
+                                          menuMaxHeight: 400.h,
+                                          onChanged: (newValue) {
+                                            selectedFont = newValue ?? 'Segoe';
 
-                                        selectedTextStyle = fontNames
-                                            .where(
-                                              (element) =>
-                                                  element == selectedFont,
-                                            )
-                                            .first;
+                                            selectedTextStyle = fontNames
+                                                .where(
+                                                  (element) =>
+                                                      element == selectedFont,
+                                                )
+                                                .first;
 
-                                        gs.write(libFont, selectedFont);
+                                            gs.write(libFont, selectedFont);
 
-                                        setState(() {});
-                                        controllerPaging.paginate();
-                                        updateUI();
-                                      },
-                                      items: fontNames
-                                          .map<DropdownMenuItem<String>>((
-                                            String font,
-                                          ) {
-                                            return DropdownMenuItem<String>(
-                                              value: font,
-                                              child: Text(
-                                                font,
-                                                style: TextStyle(
-                                                  color: selectedFont == font
-                                                      ? widget.accentColor
-                                                      : fontColor,
-                                                  package: 'cosmos_epub',
-                                                  fontSize: context.isTablet
-                                                      ? 10.sp
-                                                      : 15.sp,
-                                                  fontWeight:
-                                                      selectedFont == font
-                                                      ? FontWeight.bold
-                                                      : FontWeight.normal,
-                                                  fontFamily: font,
-                                                ),
-                                              ),
-                                            );
-                                          })
-                                          .toList(),
+                                            setState(() {});
+                                            controllerPaging.paginate();
+                                            updateUI();
+                                          },
+                                          items: fontNames
+                                              .map<DropdownMenuItem<String>>((
+                                                String font,
+                                              ) {
+                                                return DropdownMenuItem<String>(
+                                                  value: font,
+                                                  child: Text(
+                                                    font,
+                                                    style: TextStyle(
+                                                      color:
+                                                          selectedFont == font
+                                                          ? widget.accentColor
+                                                          : fontColor,
+                                                      package: 'cosmos_epub',
+                                                      fontSize: context.isTablet
+                                                          ? 10.sp
+                                                          : 15.sp,
+                                                      fontWeight:
+                                                          selectedFont == font
+                                                          ? FontWeight.bold
+                                                          : FontWeight.normal,
+                                                      fontFamily: font,
+                                                    ),
+                                                  ),
+                                                );
+                                              })
+                                              .toList(),
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
                           ),
                           Row(
                             children: [
@@ -470,31 +466,19 @@ class ShowEpubState extends State<ShowEpub> {
     setState(() {});
   }
 
-  void _resetSwipeState() {
-    lastSwipe = 0;
-    prevSwipe = 0;
-    isLastPage = false;
-  }
-
   Future<void> nextChapter() async {
-    _resetSwipeState();
-    await bookProgress.setCurrentPageIndex(bookId, 0);
-
-    var index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-
-    if (index != chaptersList.length - 1) {
-      reLoadChapter(index: index + 1);
+    final index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
+    if (index < chaptersList.length - 1) {
+      await bookProgress.setCurrentPageIndex(bookId, 0);
+      await updateContentAccordingChapter(index + 1);
     }
   }
 
   Future<void> prevChapter() async {
-    _resetSwipeState();
-    await bookProgress.setCurrentPageIndex(bookId, 0);
-
-    var index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-
-    if (index != 0) {
-      reLoadChapter(index: index - 1);
+    final index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
+    if (index > 0) {
+      await bookProgress.setCurrentPageIndex(bookId, 0);
+      await updateContentAccordingChapter(index - 1);
     }
   }
 
@@ -595,43 +579,14 @@ class ShowEpubState extends State<ShowEpub> {
                                               : currentPage,
                                         );
 
-                                        // Reset swipe counters when not on boundary pages
-                                        if (currentPage != totalPages - 1) {
-                                          lastSwipe = 0;
-                                        }
-                                        if (currentPage != 0) {
-                                          prevSwipe = 0;
-                                        }
-
-                                        isLastPage = false;
                                         updateUI();
                                       },
                                       onLastPage: (index, totalPages) async {
                                         widget.onLastPage?.call(index);
-
-                                        // For all chapters: require 2 swipes past last page
-                                        // except 1-page chapters which advance immediately
-                                        if (totalPages <= 1) {
-                                          nextChapter();
-                                        } else {
-                                          lastSwipe++;
-                                          if (lastSwipe > 1) {
-                                            nextChapter();
-                                          }
-                                        }
-
-                                        isLastPage = true;
-                                        updateUI();
+                                        nextChapter();
                                       },
                                       onFirstPageBack: (index, totalPages) {
-                                        if (totalPages <= 1) {
-                                          prevChapter();
-                                        } else {
-                                          prevSwipe++;
-                                          if (prevSwipe > 1) {
-                                            prevChapter();
-                                          }
-                                        }
+                                        prevChapter();
                                       },
                                       chapterTitle:
                                           chaptersList[currentChapterIndex]

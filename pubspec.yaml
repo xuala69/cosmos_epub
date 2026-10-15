@@ -32,6 +32,7 @@ dependencies:
   fading_edge_scrollview: ^4.1.1
   screen_brightness: ^2.1.11
   fluttertoast: ^10.0.2
+  turnable_page_plus: ^1.0.0
 
 dev_dependencies:
   flutter_test:
