@@ -1,4 +1,3 @@
-import 'package:cosmos_epub/Component/highlight_toolbar.dart';
 import 'package:cosmos_epub/Helpers/epub_content_parser.dart';
 import 'package:cosmos_epub/Helpers/html_paginator.dart';
 import 'package:cosmos_epub/Helpers/html_text_builder.dart';
@@ -8,7 +7,6 @@ import 'package:turnable_page_plus/turnable_page_plus.dart';
 import 'package:cosmos_epub/Helpers/functions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 // Soft hyphen — Flutter's native Text/RichText breaks lines here.
@@ -327,7 +325,6 @@ class _PagingWidgetState extends State<PagingWidget> {
   }
 }
 
-
 /// Detects a short tap (pointer down + up with minimal movement) without
 /// registering a GestureRecognizer that would compete with TurnablePage's
 /// flip gesture. Uses raw pointer events so the flip engine still wins drags.
@@ -387,9 +384,6 @@ class _HighlightablePage extends StatefulWidget {
 }
 
 class _HighlightablePageState extends State<_HighlightablePage> {
-  String _lastSelectedText = '';
-  int _tappedParagraphStart = 0;
-  int _tappedParagraphEnd = -1;
   HtmlTextBuilder? _lastBuilder;
 
   List<Widget> _buildContent() {
@@ -424,87 +418,13 @@ class _HighlightablePageState extends State<_HighlightablePage> {
       accentColor: widget.accentColor,
       onTextTap: widget.onTextTap,
       highlights: pageHighlights,
-      onParagraphTapped: (start, end) {
-        _tappedParagraphStart = start;
-        _tappedParagraphEnd = end;
-      },
+      onParagraphTapped: (start, end) {},
       onHighlightChanged: () {
         if (mounted) setState(() {});
       },
     );
 
     return _lastBuilder!.build(widget.pageHtml);
-  }
-
-  void _addHighlight(String selectedText, Color color) {
-    if (selectedText.isEmpty || widget.bookId.isEmpty) return;
-
-    final cleanSelected = selectedText
-        .replaceAll('\u00AD', '')
-        .replaceAll('-\n', '')
-        .replaceAll('\n', ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    if (cleanSelected.isEmpty) return;
-
-    final builtText = _lastBuilder?.lastBuiltCleanText ?? '';
-
-    // Search within the tapped paragraph first (accurate for duplicate words)
-    final searchText = cleanSelected.replaceAll('-', '');
-    final searchStart = _tappedParagraphEnd > 0 ? _tappedParagraphStart : 0;
-    final searchEnd = _tappedParagraphEnd > 0
-        ? _tappedParagraphEnd
-        : builtText.length;
-    final paragraphText = builtText.substring(
-      searchStart.clamp(0, builtText.length),
-      searchEnd.clamp(0, builtText.length),
-    );
-
-    var localIdx = paragraphText.indexOf(searchText);
-    var idx = localIdx != -1 ? searchStart + localIdx : -1;
-
-    // Fallback: search full page
-    if (idx == -1) {
-      idx = builtText.indexOf(cleanSelected);
-    }
-    if (idx == -1) {
-      idx = builtText.indexOf(searchText);
-    }
-    if (idx == -1) {
-      final normalizedBuilt = builtText.replaceAll(RegExp(r'\s+'), ' ');
-      final normalizedIdx = normalizedBuilt.indexOf(cleanSelected);
-      if (normalizedIdx == -1) return;
-      int origPos = 0, normPos = 0;
-      while (normPos < normalizedIdx && origPos < builtText.length) {
-        if (RegExp(r'\s').hasMatch(builtText[origPos])) {
-          while (origPos < builtText.length &&
-              RegExp(r'\s').hasMatch(builtText[origPos])) {
-            origPos++;
-          }
-          normPos++;
-        } else {
-          origPos++;
-          normPos++;
-        }
-      }
-      idx = origPos;
-    }
-
-    final pKey = HighlightModel.makeParagraphKey(builtText);
-
-    final highlight = HighlightModel(
-      id: HighlightModel.generateId(),
-      bookId: widget.bookId,
-      chapterIndex: widget.chapterIndex,
-      paragraphKey: pKey,
-      startIndex: idx,
-      endIndex: idx + cleanSelected.length,
-      selectedText: cleanSelected,
-      colorValue: color.toARGB32(),
-    );
-
-    HighlightStorage.addOrUpdate(highlight);
-    setState(() {});
   }
 
   @override
@@ -536,117 +456,26 @@ class _HighlightablePageState extends State<_HighlightablePage> {
 
     // SelectionArea is kept for text highlighting but without a scroll wrapper
     // so that TurnablePage's render object can claim horizontal drag gestures.
-    return SelectionArea(
-      onSelectionChanged: (content) {
-        _lastSelectedText = content?.plainText ?? '';
-      },
-      contextMenuBuilder: (context, selectableRegionState) {
-        return _PageToolbar(
-          anchor: selectableRegionState.contextMenuAnchors,
-          onCopy: () {
-            Clipboard.setData(ClipboardData(text: _lastSelectedText));
-          },
-          onSelectAll: () {
-            selectableRegionState.selectAll(SelectionChangedCause.toolbar);
-          },
-          onColorSelected: (color) {
-            _addHighlight(_lastSelectedText, color);
-            FocusManager.instance.primaryFocus?.unfocus();
-          },
-        );
-      },
-      child: Container(
-        color: widget.backgroundColor,
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: 40.h,
-            top: 60.h,
-            left: 20.w,
-            right: 20.w,
-          ),
-          child: DefaultTextStyle(
-            style: widget.style.copyWith(height: 1.4),
-            child: Directionality(
-              textDirection: pageTextDirection,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: contentWidgets,
-              ),
+    return Container(
+      color: widget.backgroundColor,
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: 40.h,
+          top: 60.h,
+          left: 20.w,
+          right: 20.w,
+        ),
+        child: DefaultTextStyle(
+          style: widget.style.copyWith(height: 1.4),
+          child: Directionality(
+            textDirection: pageTextDirection,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: contentWidgets,
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Page-level toolbar with highlight colors + copy + select all.
-class _PageToolbar extends StatelessWidget {
-  final TextSelectionToolbarAnchors anchor;
-  final VoidCallback onCopy;
-  final VoidCallback onSelectAll;
-  final void Function(Color) onColorSelected;
-
-  const _PageToolbar({
-    required this.anchor,
-    required this.onCopy,
-    required this.onSelectAll,
-    required this.onColorSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AdaptiveTextSelectionToolbar(
-      anchors: anchor,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...highlightColors.map(
-                (color) => GestureDetector(
-                  onTap: () => onColorSelected(color),
-                  child: Container(
-                    width: 26,
-                    height: 26,
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white54, width: 1.5),
-                    ),
-                  ),
-                ),
-              ),
-              Container(
-                width: 1,
-                height: 20,
-                margin: const EdgeInsets.symmetric(horizontal: 6),
-                color: Colors.white24,
-              ),
-              GestureDetector(
-                onTap: onCopy,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: Icon(Icons.copy, size: 20, color: Colors.white70),
-                ),
-              ),
-              GestureDetector(
-                onTap: onSelectAll,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: Icon(
-                    Icons.select_all,
-                    size: 20,
-                    color: Colors.white70,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
