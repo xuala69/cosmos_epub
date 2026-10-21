@@ -235,6 +235,25 @@ class _PagingWidgetState extends State<PagingWidget> {
   /// key so the engine is rebuilt once with the new count.
   final _pageKey = GlobalKey();
   late final PageFlipController _flipController;
+  Offset? _singlePageSwipeStart;
+
+  void _handleSinglePagePointerDown(PointerDownEvent event) {
+    if (pages.length == 1) _singlePageSwipeStart = event.position;
+  }
+
+  void _handleSinglePagePointerUp(PointerUpEvent event) {
+    final start = _singlePageSwipeStart;
+    _singlePageSwipeStart = null;
+    if (start == null || pages.length != 1) return;
+
+    final dx = event.position.dx - start.dx;
+    // Follow the reader's next-button direction: LTR advances with a
+    // right-to-left swipe, while RTL advances with a left-to-right swipe.
+    final forward = Directionality.of(context) == TextDirection.rtl
+        ? dx > 48
+        : dx < -48;
+    if (forward) widget.onLastPage(0, pages.length);
+  }
 
   @override
   void initState() {
@@ -329,6 +348,19 @@ class _PagingWidgetState extends State<PagingWidget> {
   FlipSettings _resolvedSettings() {
     final base =
         widget.flipSettings ??
+        // FlipSettings(
+        //   enableInertia: false,  // Disable inertia-based flipping to prevent page skipping
+        //   enableEasing: true,
+        //   flippingTime: 650,
+        //   swipeDistance: 48,
+        //   releaseCompletionThreshold: 0.5,
+        //   cornerTriggerAreaSize: 0.5,
+        //   inertiaVelocityThreshold: 0,  // Disable velocity-based completion
+        //   inertiaProgressBoost: 0,  // Disable progress boost
+        //   bottomCornerReleaseCompletionThreshold: 0.5,  // Same as main threshold
+        //   usePortrait: true,  // Explicitly set for single page mode
+        // );
+        //The above works but no inertia so cant turn page on simulator
         FlipSettings(
           enableInertia: true,
           enableEasing: true,
@@ -603,15 +635,65 @@ class _PagingWidgetState extends State<PagingWidget> {
       debugPrint('[PAGINATE] No pages, returning');
       return;
     }
+
+    // Try to get the actual current page from the controller for more reliable tracking
+    int controllerPage;
+    try {
+      controllerPage = _flipController.currentPageIndex;
+      debugPrint('[PAGINATE] Controller page index: $controllerPage');
+    } catch (e) {
+      debugPrint('[PAGINATE] Could not get controller page: $e');
+      controllerPage = -1;
+    }
+
     // IMPORTANT: the engine calls this as
     //   onPageChanged(left: currentIndex, right: currentIndex + 1)
     // (`rightIndex` is the page NEXT to the current one, not the current one).
     // Using rightIndex reported every turn one page too far, which desynced
     // the index from the visible page and made the next button jump pages.
-    final newIndex = leftIndex;
+
+    // Use controller page if available, otherwise fall back to leftIndex
+    int rawNewIndex = controllerPage >= 0 ? controllerPage : leftIndex;
     debugPrint(
-      '[PAGINATE] newIndex=$newIndex, current _currentPageIndex=$_currentPageIndex',
+      '[PAGINATE] rawNewIndex=$rawNewIndex (from ${controllerPage >= 0 ? 'controller' : 'leftIndex'}), current _currentPageIndex=$_currentPageIndex',
     );
+
+    // WORKAROUND: TurnablePage sometimes skips pages during swipe gestures.
+    // If we detect a skip (jump of more than 1 page), only advance by 1 page instead.
+    int newIndex = rawNewIndex;
+    if (_currentPageIndex >= 0 && pages.isNotEmpty) {
+      // final expectedNext = _currentPageIndex + 1;
+      // final expectedPrev = _currentPageIndex - 1;
+
+      // If TurnablePage reports we jumped forward by more than 1 page,
+      // only advance by 1 instead
+      if (rawNewIndex > _currentPageIndex + 1) {
+        debugPrint(
+          '[PAGINATE] WARNING: Detected page skip forward from $_currentPageIndex to $rawNewIndex, correcting to ${_currentPageIndex + 1}',
+        );
+        newIndex = _currentPageIndex + 1;
+      }
+      // If TurnablePage reports we jumped backward by more than 1 page,
+      // only go back by 1 instead
+      else if (rawNewIndex < _currentPageIndex - 1) {
+        debugPrint(
+          '[PAGINATE] WARNING: Detected page skip backward from $_currentPageIndex to $rawNewIndex, correcting to ${_currentPageIndex - 1}',
+        );
+        newIndex = _currentPageIndex - 1;
+      }
+    }
+
+    // FIX: When swiping from the last page of a chapter (where rightIndex = -1),
+    // automatically trigger chapter navigation, just like the next button does.
+    // This handles the case where a chapter has only 1 page and swiping should go to next chapter.
+    if (pages.length > 1 && rightIndex == -1 && leftIndex == pages.length - 1) {
+      debugPrint(
+        '[PAGINATE] Swiped from last page of chapter, triggering onLastPage for chapter navigation',
+      );
+      widget.onLastPage(leftIndex, pages.length);
+      // Don't update index or return, let normal flow continue
+    }
+
     if (newIndex < 0 || newIndex >= pages.length) {
       debugPrint('[PAGINATE] newIndex out of bounds, returning');
       return;
@@ -884,23 +966,28 @@ class _PagingWidgetState extends State<PagingWidget> {
             Expanded(
               child: SizedBox.expand(
                 key: _pageKey,
-                child: TurnablePage(
-                  key: ValueKey('reader_${pages.length}_$_pendingStartPage'),
-                  controller: _flipController,
-                  pageCount: pages.length,
-                  pageViewMode: PageViewMode.single,
-                  pagesBoundaryIsEnabled: true,
-                  autoResponseSize: false,
-                  settings: _resolvedSettings().copyWith(
-                    startPage: _pendingStartPage.clamp(0, pages.length - 1),
+                child: Listener(
+                  onPointerDown: _handleSinglePagePointerDown,
+                  onPointerUp: _handleSinglePagePointerUp,
+                  onPointerCancel: (_) => _singlePageSwipeStart = null,
+                  child: TurnablePage(
+                    key: ValueKey('reader_${pages.length}_$_pendingStartPage'),
+                    controller: _flipController,
+                    pageCount: pages.length,
+                    pageViewMode: PageViewMode.single,
+                    pagesBoundaryIsEnabled: false,
+                    autoResponseSize: false,
+                    settings: _resolvedSettings().copyWith(
+                      startPage: _pendingStartPage.clamp(0, pages.length - 1),
+                    ),
+                    onPageChanged: (left, right) {
+                      debugPrint(
+                        '[PAGINATE] TurnablePage onPageChanged: left=$left, right=$right, currentPageIndex=$_currentPageIndex',
+                      );
+                      _onPageChanged(left, right);
+                    },
+                    builder: (context, index, constraints) => pages[index],
                   ),
-                  onPageChanged: (left, right) {
-                    debugPrint(
-                      '[PAGINATE] TurnablePage onPageChanged: left=$left, right=$right, currentPageIndex=$_currentPageIndex',
-                    );
-                    _onPageChanged(left, right);
-                  },
-                  builder: (context, index, constraints) => pages[index],
                 ),
               ),
             ),

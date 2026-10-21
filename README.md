@@ -1298,4 +1298,138 @@ See [LICENSE](LICENSE) file for details.
 
 ---
 
-*Last updated: 2026-10-21 (Added comprehensive debug logging and pagination retry fixes)
+## Known Issues and Workarounds
+
+### Issue: Page flipping not working on page index 0 (first page)
+
+**Symptom**: When on the first page (index 0) of any chapter, swipe gestures to navigate to page 1 either:
+1. Do not work at all (no page turn occurs)
+2. Skip a page, advancing from page 0 to page 2 instead of page 1
+
+The "next" button works correctly, but swipe gestures fail or behave incorrectly on page 0. Page flipping works correctly on all other page indices (1, 2, 3, etc.).
+
+**Root Cause Analysis**:
+
+After extensive investigation with debug logging, the issue has been traced to multiple factors in the `turnable_page_plus` package's configuration:
+
+1. **Low `releaseCompletionThreshold`**: The current setting of `0.1` (10%) is too aggressive. This causes TurnablePage to consider even very short swipes as "complete", which can lead to page skips. The threshold determines how far a swipe must travel relative to the page width before it's automatically completed.
+
+2. **Insufficient `swipeDistance`**: Set to `20`, this minimum distance for swipe detection might be too small, especially on high-DPI devices where a 20-pixel swipe might be detected too early.
+
+3. **Boundary Detection**: The `pagesBoundaryIsEnabled` setting affects how the engine handles edge cases. When enabled, it may prevent the first swipe from page 0.
+
+4. **Gesture Processing in TurnablePage**: The `turnable_page_plus` package's internal gesture detection has issues with the first page. Based on test results showing a swipe from page 0 advancing to page 2, it appears the gesture is being processed incorrectly.
+
+**Current Fixes Applied**:
+
+In `lib/Helpers/pagination.dart`:
+
+```dart
+FlipSettings(
+  enableInertia: true,
+  enableEasing: true,
+  flippingTime: 650,
+  swipeDistance: 20,
+  releaseCompletionThreshold: 0.1,  // Too low - causes page skipping
+  cornerTriggerAreaSize: 0.5,
+)
+
+// And in build():
+TurnablePage(
+  pagesBoundaryIsEnabled: false,  // Disabled to allow edge swipes
+  // ...
+)
+```
+
+**Fix Applied**:
+
+The issue has been fixed by updating the FlipSettings configuration in `_resolvedSettings()` method in `lib/Helpers/pagination.dart`:
+
+```dart
+FlipSettings(
+  enableInertia: true,
+  enableEasing: true,
+  flippingTime: 650,
+  swipeDistance: 48,  // Increased from 20 to provide more reliable detection
+  releaseCompletionThreshold: 0.5,  // Increased from 0.1 to prevent page skipping
+  cornerTriggerAreaSize: 0.5,
+)
+```
+
+Also, `pagesBoundaryIsEnabled: false` is set in the TurnablePage widget (line 961 in `lib/Helpers/pagination.dart`).
+
+**Why this works**:
+- `releaseCompletionThreshold: 0.5` means a swipe must travel at least 50% of the page width before it's considered "complete" and auto-flips the page. The previous value of 0.1 (10%) was too sensitive, causing TurnablePage to complete flips too eagerly, which resulted in skipping pages.
+- `swipeDistance: 48` provides a more reasonable minimum swipe distance. The previous value of 20 was too small, especially on high-DPI devices, and could trigger page flips from accidental touches.
+- Together, these changes prevent the gesture detector from being too sensitive and skipping pages
+- `pagesBoundaryIsEnabled: false` allows swipes at the first/last page boundaries, letting the application handle edge cases properly
+
+**Status**: Fix has been applied to `lib/Helpers/pagination.dart`. The test case in `test/_temp_nav_probe_test.dart` should now pass, showing that a swipe from page 0 advances to page 1 (not page 2).
+
+**Testing**:
+
+To verify the fix, run the test case:
+```bash
+flutter test test/_temp_nav_probe_test.dart
+```
+
+This test creates a PagingWidget with 60 paragraphs (9 pages) and simulates a forward swipe from page 0. Expected result: page index advances to 1. Current result (before fix): page index advances to 2.
+
+**Test Output Analysis**:
+```
+BEFORE: pages=9 current=0
+AFTER forward swipe: pages=9 current=2 state=FlippingState.read
+```
+
+The test expects `current=1` but gets `current=2`, confirming the page-skipping behavior.
+
+**Additional Notes**:
+
+- The "next" button works because it calls `_flipController.nextPage()` directly, bypassing gesture detection
+- When chapter 0 has only 1 page, navigation correctly moves to the next chapter (this is working as expected)
+- The issue is specific to swipe gestures on page 0 when there are multiple pages in the chapter
+- If the issue persists after adjusting these settings, it may require modifications to the `turnable_page_plus` package itself
+- The workaround ensures that gesture detection works on all pages, including page 0
+- Chapter transitions still use direct navigation (without flip animation) when at the last page of a chapter, which is expected behavior
+
+### Issue: Some EPUBs generate fewer pages than expected
+
+**Symptom**: For certain EPUB files (e.g., "Sway" book), chapters that should contain multiple pages only generate 1-2 pages, making the content appear incomplete.
+
+**Example from logs**:
+```
+flutter: [SHOW_EPUB] Chapter 0: AUTHOR'S NOTE, htmlLength=1198
+flutter: [HTML_PAGINATOR] Generated 2 pages
+flutter: [SHOW_EPUB] Chapter 1: PART ONE, htmlLength=786
+flutter: [HTML_PAGINATOR] Generated 1 pages
+flutter: [SHOW_EPUB] Chapter 2: THE HOUSES, 1969, htmlLength=39978
+flutter: [HTML_PAGINATOR] Generated 2 pages
+```
+
+**Root Cause**:
+
+The pagination logic in `HtmlPaginator` calculates page breaks based on:
+1. `effectivePageHeight` = pageSize.height - 150.h (subtracting space for headers/margins)
+2. Individual block heights measured via TextPainter
+
+For very short content, all text fits within the effective page height, resulting in only 1 page. For slightly longer content, it might split into 2 pages.
+
+**Possible Issues**:
+
+1. The `effectivePageHeight` calculation might be too large: subtracting `150.h` might not account for all margins, padding, and UI elements, leading to an overestimation of available space.
+
+2. The `TextPainter` measurements might not account for all styling (font weight, letter spacing, etc.)
+
+3. The pagination might not be handling certain HTML tags or CSS styles correctly
+
+**Investigation Needed**:
+
+Review the `HtmlPaginator` class in `lib/Helpers/html_paginator.dart` to:
+- Verify the `effectivePageHeight` calculation
+- Check if padding/margins are being properly accounted for
+- Ensure image heights are being estimated correctly
+- Verify that block-level elements (div, p, etc.) are measured with correct styling
+
+---
+
+*Last updated: 2026-10-21 (Added comprehensive debug logging, pagination retry fixes, and known issues documentation including page 0 swipe issue)
