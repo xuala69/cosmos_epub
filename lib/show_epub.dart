@@ -148,18 +148,25 @@ class ShowEpubState extends State<ShowEpub> {
   }
 
   Future<void> loadChapter({int index = -1}) async {
+    debugPrint('[SHOW_EPUB] loadChapter() called with index=$index');
     // Build content parser once — it extracts chapters and images
     contentParser ??= EpubContentParser(epubBook);
     chaptersList = contentParser!.flatChapters;
+    debugPrint('[SHOW_EPUB] Found ${chaptersList.length} chapters');
+    for (var i = 0; i < chaptersList.length; i++) {
+      debugPrint('[SHOW_EPUB] Chapter $i: ${chaptersList[i].chapter}, htmlLength=${chaptersList[i].htmlContent.length}');
+    }
 
     if (widget.starterChapter >= 0 &&
         widget.starterChapter < chaptersList.length) {
       setupNavButtons();
+      debugPrint('[SHOW_EPUB] Using starterChapter=${widget.starterChapter}');
       await updateContentAccordingChapter(
         index == -1 ? widget.starterChapter : index,
       );
     } else {
       setupNavButtons();
+      debugPrint('[SHOW_EPUB] Using default chapter 0');
       await updateContentAccordingChapter(0);
       CustomToast.showToast(
         "Invalid chapter number. Range [0-${chaptersList.length}]",
@@ -168,21 +175,30 @@ class ShowEpubState extends State<ShowEpub> {
   }
 
   Future<void> updateContentAccordingChapter(int chapterIndex) async {
+    debugPrint('[SHOW_EPUB] updateContentAccordingChapter($chapterIndex)');
     await bookProgress.setCurrentChapterIndex(bookId, chapterIndex);
 
     if (chapterIndex >= 0 && chapterIndex < chaptersList.length) {
       htmlContent = chaptersList[chapterIndex].htmlContent;
+      debugPrint('[SHOW_EPUB] Chapter HTML length: ${htmlContent.length}');
+      debugPrint('[SHOW_EPUB] Chapter HTML preview: ${htmlContent.substring(0, htmlContent.length > 200 ? 200 : htmlContent.length)}...');
     }
 
     // Extract plain text for direction detection
     final textContent =
         html_parser.parse(htmlContent).documentElement?.text ?? '';
     currentTextDirection = RTLHelper.getTextDirection(textContent);
+    debugPrint('[SHOW_EPUB] Detected text direction: $currentTextDirection');
 
-    // Rebuild first: a chapter switch arrives with the new [htmlContent], so
-    // PagingWidget re-paginates by itself from didUpdateWidget. Calling
-    // paginate() before/around that rebuild only queued extra passes (and ran
-    // them with the old content), which showed up as spinner → text → spinner.
+    // Force a rebuild by clearing and resetting page state
+    // This will show a spinner briefly during chapter transition
+    // and ensure the PagingWidget re-paginates with the new content
+    if (mounted) {
+      // Trigger a rebuild by updating state
+      // The PagingWidget will detect htmlContent change and re-paginate
+      updateUI();
+    }
+    
     setupNavButtons();
   }
 
@@ -721,20 +737,24 @@ class ShowEpubState extends State<ShowEpub> {
                                     : showPrevious,
                                 child: IconButton(
                                   onPressed: () {
-                                    // First page of the chapter → previous
-                                    // chapter; otherwise flip one page back.
+                                    debugPrint('[SHOW_EPUB] Left button clicked, RTL=$currentTextDirection');
                                     final rtl =
                                         currentTextDirection ==
                                         TextDirection.rtl;
-                                    final atChapterStart =
-                                        controllerPaging.currentPage() == 0;
-                                    if (!rtl && atChapterStart) {
-                                      prevChapter();
-                                    } else if (rtl) {
-                                      // RTL: the left arrow advances the book.
-                                      nextChapter();
+                                    if (rtl) {
+                                      // RTL: left button goes to next page/chapter
+                                      debugPrint('[SHOW_EPUB] RTL mode: calling nextPage()');
+                                      if (!controllerPaging.nextPage()) {
+                                        debugPrint('[SHOW_EPUB] At last page, moving to next chapter');
+                                        nextChapter();
+                                      }
                                     } else {
-                                      controllerPaging.previousPage();
+                                      // LTR: left button goes to previous page/chapter
+                                      debugPrint('[SHOW_EPUB] LTR mode: calling previousPage()');
+                                      if (!controllerPaging.previousPage()) {
+                                        debugPrint('[SHOW_EPUB] At first page, moving to previous chapter');
+                                        prevChapter();
+                                      }
                                     }
                                   },
                                   icon: Icon(
@@ -778,17 +798,24 @@ class ShowEpubState extends State<ShowEpub> {
                                     : showNext,
                                 child: IconButton(
                                   onPressed: () {
+                                    debugPrint('[SHOW_EPUB] Right button clicked, RTL=$currentTextDirection');
                                     final rtl =
                                         currentTextDirection ==
                                         TextDirection.rtl;
-                                    final atChapterStart =
-                                        controllerPaging.currentPage() == 0;
-                                    if (!rtl && atChapterStart) {
-                                      prevChapter();
-                                    } else if (rtl) {
-                                      nextChapter();
+                                    if (rtl) {
+                                      // RTL: right button goes to previous page/chapter
+                                      debugPrint('[SHOW_EPUB] RTL mode: calling previousPage()');
+                                      if (!controllerPaging.previousPage()) {
+                                        debugPrint('[SHOW_EPUB] At first page, moving to previous chapter');
+                                        prevChapter();
+                                      }
                                     } else {
-                                      controllerPaging.previousPage();
+                                      // LTR: right button goes to next page/chapter
+                                      debugPrint('[SHOW_EPUB] LTR mode: calling nextPage()');
+                                      if (!controllerPaging.nextPage()) {
+                                        debugPrint('[SHOW_EPUB] At last page, moving to next chapter');
+                                        nextChapter();
+                                      }
                                     }
                                   },
                                   icon: Icon(

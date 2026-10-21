@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:epubx/epubx.dart';
+import 'package:flutter/foundation.dart';
 
 import '../Model/chapter_model.dart';
 
@@ -18,55 +18,78 @@ class EpubContentParser {
   late final Map<String, Uint8List> imageMap;
 
   EpubContentParser(this.epubBook) {
+    debugPrint('[EPUB_PARSER] Parsing EPUB book: ${epubBook.Title}');
     flatChapters = _buildChapterList();
+    debugPrint('[EPUB_PARSER] Built ${flatChapters.length} flat chapters');
     imageMap = _extractImages();
+    debugPrint('[EPUB_PARSER] Extracted ${imageMap.length} images');
   }
 
   List<LocalChapterModel> _buildChapterList() {
+    debugPrint('[EPUB_PARSER] Building chapter list');
     // Strategy 1: Build from NCX NavMap (supports nested navPoints)
     final navPoints = epubBook.Schema?.Navigation?.NavMap?.Points;
     if (navPoints != null && navPoints.isNotEmpty) {
+      debugPrint(
+        '[EPUB_PARSER] Using Strategy 1: NCX NavMap with ${navPoints.length} navPoints',
+      );
       final list = <LocalChapterModel>[];
       _flattenNavPoints(navPoints, list, 0);
-      if (list.isNotEmpty) return list;
+      if (list.isNotEmpty) {
+        debugPrint('[EPUB_PARSER] Strategy 1 yielded ${list.length} chapters');
+        return list;
+      }
     }
 
     // Strategy 2: Use epubx Chapters (works for simple flat TOCs)
     if (epubBook.Chapters != null && epubBook.Chapters!.isNotEmpty) {
+      debugPrint(
+        '[EPUB_PARSER] Using Strategy 2: epubx Chapters with ${epubBook.Chapters!.length} chapters',
+      );
       final list = <LocalChapterModel>[];
       _flattenEpubChapters(epubBook.Chapters!, list, 0);
-      if (list.isNotEmpty) return list;
+      if (list.isNotEmpty) {
+        debugPrint('[EPUB_PARSER] Strategy 2 yielded ${list.length} chapters');
+        return list;
+      }
     }
 
     // Strategy 3: Fall back to spine order (catches EPUBs with no/broken TOC)
+    debugPrint('[EPUB_PARSER] Using Strategy 3: spine order');
     return _buildFromSpine();
   }
 
   /// Recursively flatten NCX navigation points — handles infinite nesting.
-  void _flattenNavPoints(List<EpubNavigationPoint> points,
-      List<LocalChapterModel> list, int depth) {
+  void _flattenNavPoints(
+    List<EpubNavigationPoint> points,
+    List<LocalChapterModel> list,
+    int depth,
+  ) {
     for (final point in points) {
-      final title =
-          point.NavigationLabels?.isNotEmpty == true
-              ? point.NavigationLabels!.first.Text ?? '...'
-              : '...';
+      final title = point.NavigationLabels?.isNotEmpty == true
+          ? point.NavigationLabels!.first.Text ?? '...'
+          : '...';
       final source = point.Content?.Source ?? '';
       final htmlContent = _resolveContentBySource(source);
 
       if (source.isEmpty && htmlContent.isEmpty) {
         // Section wrapper with no content — generate a centered title page
-        list.add(LocalChapterModel(
-          chapter: title,
-          htmlContent: '',
-          isSectionTitle: true,
-          depth: depth,
-        ));
+        list.add(
+          LocalChapterModel(
+            chapter: title,
+            htmlContent: '',
+            isSectionTitle: true,
+            depth: depth,
+          ),
+        );
       } else {
-        list.add(LocalChapterModel(
-          chapter: title,
-          htmlContent: htmlContent,
-          depth: depth,
-        ));
+        list.add(
+          LocalChapterModel(
+            chapter: title,
+            htmlContent: htmlContent,
+            depth: depth,
+          ),
+        );
       }
 
       // Recurse into children (infinite nesting)
@@ -79,39 +102,57 @@ class EpubContentParser {
 
   /// Resolve a TOC source path to actual HTML content from the EPUB.
   String _resolveContentBySource(String source) {
+    debugPrint('[EPUB_PARSER] Resolving content for source: $source');
     if (source.isEmpty) return '';
 
     // Strip fragment (#anchor)
     final cleanSource = source.split('#').first;
 
     final htmlFiles = epubBook.Content?.Html;
-    if (htmlFiles == null) return '';
+    if (htmlFiles == null) {
+      debugPrint('[EPUB_PARSER] No HTML files found in EPUB');
+      return '';
+    }
 
     // Try exact match
     if (htmlFiles.containsKey(cleanSource)) {
-      return htmlFiles[cleanSource]?.Content ?? '';
+      final content = htmlFiles[cleanSource]?.Content ?? '';
+      debugPrint(
+        '[EPUB_PARSER] Found exact match, content length: ${content.length}',
+      );
+      return content;
     }
 
     // Try matching by filename
     final filename = cleanSource.split('/').last;
     for (final entry in htmlFiles.entries) {
       if (entry.key.endsWith(filename)) {
-        return entry.value.Content ?? '';
+        final content = entry.value.Content ?? '';
+        debugPrint(
+          '[EPUB_PARSER] Found match by filename, content length: ${content.length}',
+        );
+        return content;
       }
     }
 
+    debugPrint('[EPUB_PARSER] No content found for source: $source');
     return '';
   }
 
   /// Flatten epubx EpubChapter objects (fallback).
   void _flattenEpubChapters(
-      List<EpubChapter> chapters, List<LocalChapterModel> list, int depth) {
+    List<EpubChapter> chapters,
+    List<LocalChapterModel> list,
+    int depth,
+  ) {
     for (final chapter in chapters) {
-      list.add(LocalChapterModel(
-        chapter: chapter.Title ?? '...',
-        htmlContent: chapter.HtmlContent ?? '',
-        depth: depth,
-      ));
+      list.add(
+        LocalChapterModel(
+          chapter: chapter.Title ?? '...',
+          htmlContent: chapter.HtmlContent ?? '',
+          depth: depth,
+        ),
+      );
       if (chapter.SubChapters != null && chapter.SubChapters!.isNotEmpty) {
         _flattenEpubChapters(chapter.SubChapters!, list, depth + 1);
       }
@@ -130,8 +171,9 @@ class EpubContentParser {
 
     if (spineItems != null && manifest != null) {
       for (final spineItem in spineItems) {
-        final manifestItem =
-            manifest.where((m) => m.Id == spineItem.IdRef).firstOrNull;
+        final manifestItem = manifest
+            .where((m) => m.Id == spineItem.IdRef)
+            .firstOrNull;
         if (manifestItem == null) continue;
         final href = manifestItem.Href ?? '';
         if (href.isEmpty) continue;
@@ -142,21 +184,25 @@ class EpubContentParser {
         // Skip nav pages
         if (href.contains('nav')) continue;
 
-        list.add(LocalChapterModel(
-          chapter: 'Chapter ${list.length + 1}',
-          htmlContent: content,
-          depth: 0,
-        ));
+        list.add(
+          LocalChapterModel(
+            chapter: 'Chapter ${list.length + 1}',
+            htmlContent: content,
+            depth: 0,
+          ),
+        );
       }
     } else {
       // No spine — just dump all HTML files
       for (final entry in htmlFiles.entries) {
         if (entry.key.contains('nav')) continue;
-        list.add(LocalChapterModel(
-          chapter: entry.key.split('/').last.replaceAll('.xhtml', ''),
-          htmlContent: entry.value.Content ?? '',
-          depth: 0,
-        ));
+        list.add(
+          LocalChapterModel(
+            chapter: entry.key.split('/').last.replaceAll('.xhtml', ''),
+            htmlContent: entry.value.Content ?? '',
+            depth: 0,
+          ),
+        );
       }
     }
 
@@ -194,20 +240,19 @@ class EpubContentParser {
   }
 
   String resolveImagesInHtml(String html) {
-    return html.replaceAllMapped(
-      RegExp(r'''src\s*=\s*["']([^"']+)["']'''),
-      (match) {
-        final src = match.group(1)!;
-        if (src.startsWith('data:')) return match.group(0)!;
-        final bytes = resolveImage(src);
-        if (bytes != null) {
-          final mimeType = _getMimeType(src);
-          final base64Str = base64Encode(bytes);
-          return 'src="data:$mimeType;base64,$base64Str"';
-        }
-        return match.group(0)!;
-      },
-    );
+    return html.replaceAllMapped(RegExp(r'''src\s*=\s*["']([^"']+)["']'''), (
+      match,
+    ) {
+      final src = match.group(1)!;
+      if (src.startsWith('data:')) return match.group(0)!;
+      final bytes = resolveImage(src);
+      if (bytes != null) {
+        final mimeType = _getMimeType(src);
+        final base64Str = base64Encode(bytes);
+        return 'src="data:$mimeType;base64,$base64Str"';
+      }
+      return match.group(0)!;
+    });
   }
 
   static String _getMimeType(String path) {

@@ -129,9 +129,16 @@ class CosmosEpub {
     bool shouldOpenDrawer = false,
     int starterChapter = -1,
   }) async {
+    debugPrint('[CosmosEpub] Opening asset book: $assetPath');
     var bytes = await rootBundle.load(assetPath);
+    debugPrint('[CosmosEpub] Loaded ${bytes.lengthInBytes} bytes');
     EpubBook epubBook = await EpubReader.readBook(bytes.buffer.asUint8List());
-    if (!context.mounted) return;
+    debugPrint('[CosmosEpub] Parsed EPUB: ${epubBook.Title}, chapters: ${epubBook.Chapters?.length ?? 0}');
+    if (!context.mounted) {
+      debugPrint('[CosmosEpub] Context unmounted, aborting');
+      return;
+    }
+    debugPrint('[CosmosEpub] Opening book viewer for bookId: $bookId');
     _openBook(
       context: context,
       epubBook: epubBook,

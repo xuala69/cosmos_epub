@@ -238,11 +238,17 @@ class _PagingWidgetState extends State<PagingWidget> {
 
   @override
   void initState() {
+    debugPrint('[PAGINATE] PagingWidget initState() called');
+    debugPrint('[PAGINATE] Initial fontSize: ${widget.style.fontSize}');
+    debugPrint(
+      '[PAGINATE] Initial htmlContent length: ${widget.htmlContent.length}',
+    );
     _flipController = PageFlipController();
     // Pagination needs the size of the reader, which is only known after the
     // first layout. No setState here: the first frame already shows the
     // spinner, so the spinner → content transition happens exactly once.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('[PAGINATE] Post-frame callback: requesting pagination');
       if (mounted) _requestPaginate();
     });
     var handler = PagingTextHandler(
@@ -262,6 +268,18 @@ class _PagingWidgetState extends State<PagingWidget> {
     // longer fit, so they have to be regenerated. Checked against the LAST
     // PAGINATED values (not the old widget), so back-to-back rebuilds that
     // only flip a colour or the header can never kick off another pass.
+
+    // If chapter content has changed, clear pages to show spinner during re-pagination
+    if (oldWidget.htmlContent != widget.htmlContent) {
+      debugPrint(
+        '[PAGINATE] Chapter content changed, clearing pages for re-pagination',
+      );
+      // Set pages to empty to trigger spinner
+      setState(() {
+        pages = [];
+      });
+    }
+
     if (_inputChanged()) {
       _requestPaginate();
     }
@@ -333,10 +351,18 @@ class _PagingWidgetState extends State<PagingWidget> {
     // mismatch shifts the page sideways and `hitTestChildren` (which only
     // tests the right slot) stops matching the visible page.
     final size = _paginatedPageSize;
+    debugPrint(
+      '[PAGINATE] _resolvedSettings: size=$size, base.width=${base.width}, base.height=${base.height}',
+    );
+    final actualWidth = size?.width ?? base.width;
+    final actualHeight = size?.height ?? base.height;
+    debugPrint(
+      '[PAGINATE] Using TurnablePage size: width=$actualWidth, height=$actualHeight, ratio=${actualWidth / actualHeight}',
+    );
     return base.copyWith(
       backgroundFillColor: widget.backgroundColor,
-      width: size?.width ?? base.width,
-      height: size?.height ?? base.height,
+      width: actualWidth,
+      height: actualHeight,
     );
   }
 
@@ -344,21 +370,39 @@ class _PagingWidgetState extends State<PagingWidget> {
   /// after they update their state, and from [didUpdateWidget] /
   /// [didChangeDependencies] / layout changes.
   void _requestPaginate() {
-    if (!mounted) return;
+    debugPrint(
+      '[PAGINATE] _requestPaginate() called, isPaginating=$_isPaginating, pages.isEmpty=${pages.isEmpty}',
+    );
+    if (!mounted) {
+      debugPrint('[PAGINATE] Widget not mounted, aborting request');
+      return;
+    }
 
     // A pass is already running. It reads the CURRENT widget + MediaQuery when
     // it starts, so a request that arrives while it runs is already covered —
     // starting a second pass would only throw away the first one.
-    if (_isPaginating) return;
+    if (_isPaginating) {
+      debugPrint('[PAGINATE] Pagination already in progress, skipping request');
+      return;
+    }
 
     // Nothing the paginator cares about changed (theme colours, header
     // toggling, a rebuild from the parent, …) → keep the pages as they are.
-    if (!_inputChanged()) return;
+    final inputChanged = _inputChanged();
+    debugPrint('[PAGINATE] inputChanged=$inputChanged');
+    if (!inputChanged) {
+      debugPrint('[PAGINATE] No input changes, skipping pagination');
+      return;
+    }
 
     if (pages.isEmpty) {
+      debugPrint('[PAGINATE] First pass - will show spinner');
       // First ever pass: show the spinner until the pages exist.
       setState(_beginPaginate);
     } else {
+      debugPrint(
+        '[PAGINATE] Re-pagination - will keep current pages on screen',
+      );
       // Re-pagination: keep the current pages (and the reader's position) on
       // screen while the new ones are built in the background.
       _beginPaginate();
@@ -381,6 +425,7 @@ class _PagingWidgetState extends State<PagingWidget> {
   /// between, so the build phase can never start a pass (that would crash
   /// with "setState() called during build").
   void _beginPaginate() {
+    debugPrint('[PAGINATE] _beginPaginate() starting new pass');
     _isPaginating = true;
     _pendingTextScaler = MediaQuery.textScalerOf(context);
     // Snapshot the inputs NOW, so pages are laid out with exactly the style
@@ -388,6 +433,9 @@ class _PagingWidgetState extends State<PagingWidget> {
     _pendingHtml = widget.htmlContent;
     _pendingFontSize = widget.style.fontSize;
     _pendingFontFamily = widget.rawFontFamily;
+    debugPrint(
+      '[PAGINATE] Captured inputs: htmlLength=${_pendingHtml.length}, fontSize=$_pendingFontSize, fontFamily=$_pendingFontFamily',
+    );
     _lastPassToken = _paginateToken + 1;
     final pass = _paginate();
     paginateFuture = pass;
@@ -488,81 +536,149 @@ class _PagingWidgetState extends State<PagingWidget> {
 
   /// Animated page turn used by the reader's next/previous buttons.
   ///
-  /// Returns false when this chapter has no next page, so the caller can move
-  /// on to the next chapter instead. On success the engine runs the normal
-  /// flip animation and reports the new page through [_onPageChanged], which
-  /// keeps progress, callbacks and chapter boundaries in sync — a button turn
-  /// is then indistinguishable from a swipe.
+  /// Returns false when this chapter has no next page AND there's no next chapter,
+  /// so the caller knows we're at the end. Otherwise, it either flips to the next
+  /// page in this chapter, or (if at the last page) it triggers a chapter change
+  /// through the normal onLastPage callback mechanism.
   bool _flipToNextPage() {
-    if (pages.isEmpty) return false;
-    if (_currentPageIndex >= pages.length - 1) return false;
-    try {
-      // `flipNext` (NOT `goToPage`): goToPage emits a 'flip' event for the
-      // target immediately, so the engine reported the new index before the
-      // animation even started and we counted the turn twice.
-      _flipController.nextPage();
-    } catch (_) {
-      // Controller not attached yet (no TurnablePage laid out).
+    debugPrint('[PAGINATE] _flipToNextPage() called');
+    debugPrint(
+      '[PAGINATE] pages.length=${pages.length}, _currentPageIndex=$_currentPageIndex',
+    );
+    if (pages.isEmpty) {
+      debugPrint('[PAGINATE] No pages available, returning false');
       return false;
     }
-    return true;
+
+    // Check if we can flip to a next page in this chapter
+    if (_currentPageIndex < pages.length - 1) {
+      try {
+        debugPrint('[PAGINATE] Calling _flipController.nextPage()');
+        _flipController.nextPage();
+      } catch (_) {
+        debugPrint('[PAGINATE] Controller not attached, returning false');
+        return false;
+      }
+      debugPrint('[PAGINATE] nextPage() succeeded');
+      return true;
+    }
+
+    // We're at the last page of this chapter - check if there's a next chapter
+    // For now, we return false to let the caller handle chapter navigation
+    // TODO: We could pre-load the first page of the next chapter and flip to it
+    debugPrint(
+      '[PAGINATE] At last page of chapter ${widget.chapterIndex}, returning false for chapter navigation',
+    );
+    return false;
   }
 
   /// Animated backward page turn (see [_flipToNextPage]).
   bool _flipToPreviousPage() {
-    if (pages.isEmpty) return false;
-    if (_currentPageIndex <= 0) return false;
-    try {
-      _flipController.previousPage();
-    } catch (_) {
+    debugPrint('[PAGINATE] _flipToPreviousPage() called');
+    debugPrint(
+      '[PAGINATE] pages.length=${pages.length}, _currentPageIndex=$_currentPageIndex',
+    );
+    if (pages.isEmpty) {
+      debugPrint('[PAGINATE] No pages available, returning false');
       return false;
     }
+    if (_currentPageIndex <= 0) {
+      debugPrint('[PAGINATE] At first page!');
+      return false;
+    }
+    try {
+      debugPrint('[PAGINATE] Calling _flipController.previousPage()');
+      _flipController.previousPage();
+    } catch (_) {
+      debugPrint('[PAGINATE] Controller not attached, returning false');
+      return false;
+    }
+    debugPrint('[PAGINATE] previousPage() succeeded');
     return true;
   }
 
   void _onPageChanged(int leftIndex, int rightIndex) {
-    if (pages.isEmpty) return;
+    debugPrint('[PAGINATE] _onPageChanged(left=$leftIndex, right=$rightIndex)');
+    if (pages.isEmpty) {
+      debugPrint('[PAGINATE] No pages, returning');
+      return;
+    }
     // IMPORTANT: the engine calls this as
     //   onPageChanged(left: currentIndex, right: currentIndex + 1)
     // (`rightIndex` is the page NEXT to the current one, not the current one).
     // Using rightIndex reported every turn one page too far, which desynced
     // the index from the visible page and made the next button jump pages.
     final newIndex = leftIndex;
-    if (newIndex < 0 || newIndex >= pages.length) return;
+    debugPrint(
+      '[PAGINATE] newIndex=$newIndex, current _currentPageIndex=$_currentPageIndex',
+    );
+    if (newIndex < 0 || newIndex >= pages.length) {
+      debugPrint('[PAGINATE] newIndex out of bounds, returning');
+      return;
+    }
 
     // Only a real turn crosses a chapter boundary. Without this the engine's
     // post-layout 'flip' notification for page 0 (sent whenever the book is
     // laid out / re-created) was treated as "back from the first page" and
     // went straight to the previous chapter.
     final crossed = newIndex != _currentPageIndex;
+    debugPrint(
+      '[PAGINATE] crossed=$crossed, updating _currentPageIndex from $_currentPageIndex to $newIndex',
+    );
     _currentPageIndex = newIndex;
     widget.onPageFlip(newIndex, pages.length);
     bookProgress.setCurrentPageIndex(widget.bookId, newIndex);
     if (!crossed) return;
 
     if (newIndex == pages.length - 1) {
+      debugPrint('[PAGINATE] Reached last page, calling onLastPage');
       widget.onLastPage(newIndex, pages.length);
     }
     if (newIndex == 0) {
+      debugPrint('[PAGINATE] Reached first page, calling onFirstPageBack');
       widget.onFirstPageBack?.call(0, pages.length);
     }
   }
 
   Future<void> _paginate() async {
     final token = ++_paginateToken;
-    if (!mounted) return;
+    debugPrint('[PAGINATE] Starting pagination pass #$token');
+    if (!mounted) {
+      debugPrint('[PAGINATE] Widget not mounted, aborting pass #$token');
+      return;
+    }
 
     final renderObject = context.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.hasSize) {
+    debugPrint('[PAGINATE] RenderObject type: ${renderObject.runtimeType}');
+    if (renderObject is! RenderBox) {
+      debugPrint(
+        '[PAGINATE] RenderObject is not RenderBox, aborting pass #$token',
+      );
       _completePaginate(token);
       return;
     }
+    if (!renderObject.hasSize) {
+      debugPrint(
+        '[PAGINATE] RenderBox has no size yet (${renderObject.size}), scheduling retry...',
+      );
+      // Schedule a retry for the next frame
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && token == _paginateToken) {
+          debugPrint('[PAGINATE] Retry: calling _paginate() again');
+          _paginate();
+        }
+      });
+      _completePaginate(token);
+      return;
+    }
+    debugPrint('[PAGINATE] RenderBox has size: ${renderObject.size}');
     _initializedRenderBox = renderObject;
 
     // Remember where the reader was so the position survives regeneration.
     final previousIndex = _resolvePageIndexAfterRepaginate();
 
     final pageSize = _initializedRenderBox.size;
+    debugPrint('[PAGINATE] Page size: $pageSize');
     // Measure with the inputs captured by [_beginPaginate], so the pages are
     // consistent even if the widget is rebuilt during the pass.
     final html = _pendingHtml;
@@ -570,17 +686,37 @@ class _PagingWidgetState extends State<PagingWidget> {
     final fontFamily = _pendingFontFamily;
     final textScaler = _pendingTextScaler ?? MediaQuery.textScalerOf(context);
     final textDirection = RTLHelper.getTextDirection(html);
+    debugPrint(
+      '[PAGINATE] HTML length: ${html.length}, fontSize: $fontSize, fontFamily: $fontFamily',
+    );
+
+    // Check if HTML is empty or very short
+    if (html.trim().isEmpty) {
+      debugPrint('[PAGINATE] WARNING: HTML content is empty!');
+    } else if (html.length < 100) {
+      debugPrint(
+        '[PAGINATE] WARNING: HTML content is very short ($html.length chars)',
+      );
+    }
 
     // Resolve EPUB images to inline base64 data URIs
     String resolvedHtml = html;
     if (widget.contentParser != null) {
+      debugPrint('[PAGINATE] Resolving images in HTML');
       resolvedHtml = widget.contentParser!.resolveImagesInHtml(resolvedHtml);
     }
 
     // Split HTML into page-sized chunks (before hyphenation so measurement is clean)
+    // Subtract space for headers and margins
+    final effectivePageHeight = pageSize.height - 150.h;
+    debugPrint('[PAGINATE] Page size: $pageSize');
+    debugPrint('[PAGINATE] Effective page height: $effectivePageHeight');
+    debugPrint('[PAGINATE] Font size: $fontSize, font family: $fontFamily');
+    debugPrint('[PAGINATE] Text direction: $textDirection');
+    debugPrint('[PAGINATE] Text scaler: ${textScaler.scale(1.0)}');
     final paginator = HtmlPaginator(
       pageWidth: pageSize.width - 20.w,
-      pageHeight: pageSize.height - 100.h,
+      pageHeight: effectivePageHeight,
       fontSize: fontSize,
       fontFamily: fontFamily,
       fontPackage: 'cosmos_epub',
@@ -588,15 +724,48 @@ class _PagingWidgetState extends State<PagingWidget> {
       textScaler: textScaler,
     );
 
+    debugPrint(
+      '[PAGINATE] Calling HtmlPaginator.paginate() with ${resolvedHtml.length} chars',
+    );
+    debugPrint(
+      '[PAGINATE] HTML content preview: ${resolvedHtml.substring(0, resolvedHtml.length > 500 ? 500 : resolvedHtml.length)}...',
+    );
     final newPageHtmls = paginator.paginate(resolvedHtml);
+    debugPrint('[PAGINATE] Generated ${newPageHtmls.length} pages');
+
+    if (newPageHtmls.length == 1) {
+      debugPrint('[PAGINATE] WARNING: Only 1 page generated!');
+      debugPrint(
+        '[PAGINATE] Check if HTML is empty or page height is too large',
+      );
+      debugPrint('[PAGINATE] Effective page height used: $effectivePageHeight');
+    }
 
     // A newer pass was requested while this one was running — drop this one.
-    if (!mounted || token != _paginateToken) return;
+    if (!mounted) {
+      debugPrint(
+        '[PAGINATE] Widget unmounted during pagination, dropping pass #$token',
+      );
+      return;
+    }
+    if (token != _paginateToken) {
+      debugPrint(
+        '[PAGINATE] Newer pass requested (current token: $_paginateToken), dropping pass #$token',
+      );
+      return;
+    }
 
     // Nothing actually changed while this pass ran (e.g. the slider fired a
     // second request after the value settled): keep the existing pages and
     // make sure the spinner is gone.
     final sameResult = _samePageList(newPageHtmls, _pageHtmls);
+    if (sameResult) {
+      debugPrint('[PAGINATE] Same result as previous, not updating pages');
+    } else {
+      debugPrint(
+        '[PAGINATE] New pages generated: ${newPageHtmls.length} pages',
+      );
+    }
 
     _pageHtmls = newPageHtmls;
 
@@ -637,9 +806,13 @@ class _PagingWidgetState extends State<PagingWidget> {
       pages.isEmpty ? 0 : pages.length - 1,
     );
     _currentPageIndex = _pendingStartPage;
+    debugPrint(
+      '[PAGINATE] Pending start page: $_pendingStartPage, current page: $_currentPageIndex',
+    );
 
     if (sameResult && !_isFirstBuildPending) {
       // Same content as before — no rebuild needed, just leave the spinner.
+      debugPrint('[PAGINATE] Not rebuilding, spinner will be hidden');
       _isPaginating = false;
       return;
     }
@@ -665,10 +838,37 @@ class _PagingWidgetState extends State<PagingWidget> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint(
+      '[PAGINATE] build() called, pages.length=${pages.length}, _isPaginating=$_isPaginating',
+    );
+
+    // Check if we have a size now and need to trigger pagination
+    final renderObject = context.findRenderObject();
+    debugPrint(
+      '[PAGINATE] build() RenderObject: ${renderObject.runtimeType}, hasSize: ${renderObject is RenderBox ? (renderObject).hasSize : 'N/A'}, size: ${renderObject is RenderBox ? (renderObject).size : 'N/A'}',
+    );
+    if (pages.isEmpty &&
+        !_isPaginating &&
+        renderObject is RenderBox &&
+        renderObject.hasSize) {
+      debugPrint(
+        '[PAGINATE] Build detected: pages empty but has size, triggering pagination',
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && pages.isEmpty) {
+          debugPrint(
+            '[PAGINATE] Post-frame: retrying pagination with available size',
+          );
+          _requestPaginate();
+        }
+      });
+    }
+
     // The reader only exists once the first page list was built. While that
     // first pass runs the spinner is shown; afterwards the pages stay on
     // screen through every further pass, so the spinner never comes back.
     if (pages.isEmpty) {
+      debugPrint('[PAGINATE] Pages empty, showing spinner');
       return Center(
         child: CupertinoActivityIndicator(
           color: Theme.of(context).primaryColor,
@@ -684,64 +884,29 @@ class _PagingWidgetState extends State<PagingWidget> {
             Expanded(
               child: SizedBox.expand(
                 key: _pageKey,
-                child: _TapDetector(
-                  onTap: widget.onTextTap,
-                  child: TurnablePage(
-                    key: ValueKey('reader_${pages.length}_$_pendingStartPage'),
-                    controller: _flipController,
-                    pageCount: pages.length,
-                    pageViewMode: PageViewMode.single,
-                    pagesBoundaryIsEnabled: false,
-                    autoResponseSize: true,
-                    aspectRatio:
-                        _paginatedPageSize?.aspectRatio ?? 2 / 3,
-                    settings: _resolvedSettings().copyWith(
-                      startPage: _pendingStartPage.clamp(
-                        0,
-                        pages.length - 1,
-                      ),
-                      usePortrait: true,
-                    ),
-                    onPageChanged: _onPageChanged,
-                    builder: (context, index, constraints) => pages[index],
+                child: TurnablePage(
+                  key: ValueKey('reader_${pages.length}_$_pendingStartPage'),
+                  controller: _flipController,
+                  pageCount: pages.length,
+                  pageViewMode: PageViewMode.single,
+                  pagesBoundaryIsEnabled: true,
+                  autoResponseSize: false,
+                  settings: _resolvedSettings().copyWith(
+                    startPage: _pendingStartPage.clamp(0, pages.length - 1),
                   ),
+                  onPageChanged: (left, right) {
+                    debugPrint(
+                      '[PAGINATE] TurnablePage onPageChanged: left=$left, right=$right, currentPageIndex=$_currentPageIndex',
+                    );
+                    _onPageChanged(left, right);
+                  },
+                  builder: (context, index, constraints) => pages[index],
                 ),
               ),
             ),
           ],
         ),
       ],
-    );
-  }
-}
-
-/// Detects a short tap (pointer down + up with minimal movement) without
-/// registering a GestureRecognizer that would compete with TurnablePage's
-/// flip gesture. Uses raw pointer events so the flip engine still wins drags.
-class _TapDetector extends StatefulWidget {
-  const _TapDetector({required this.child, required this.onTap});
-  final Widget child;
-  final VoidCallback onTap;
-  @override
-  State<_TapDetector> createState() => _TapDetectorState();
-}
-
-class _TapDetectorState extends State<_TapDetector> {
-  Offset? _downPos;
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (e) => _downPos = e.position,
-      onPointerUp: (e) {
-        if (_downPos != null && (e.position - _downPos!).distance < 10) {
-          widget.onTap();
-        }
-        _downPos = null;
-      },
-      onPointerCancel: (_) => _downPos = null,
-      child: widget.child,
     );
   }
 }

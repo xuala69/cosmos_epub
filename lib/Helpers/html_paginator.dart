@@ -37,35 +37,70 @@ class HtmlPaginator {
   );
 
   List<String> paginate(String htmlContent) {
-    if (htmlContent.trim().isEmpty) return [''];
+    debugPrint('[HTML_PAGINATOR] paginate() called with ${htmlContent.length} chars');
+    if (htmlContent.trim().isEmpty) {
+      debugPrint('[HTML_PAGINATOR] HTML is empty, returning single empty page');
+      return [''];
+    }
+    
+    // Check for very short HTML
+    if (htmlContent.length < 100) {
+      debugPrint('[HTML_PAGINATOR] WARNING: HTML is very short ($htmlContent.length chars)');
+      debugPrint('[HTML_PAGINATOR] HTML content: $htmlContent');
+    }
 
     final fixedHtml = _fixXhtml(htmlContent);
+    debugPrint('[HTML_PAGINATOR] Fixed HTML length: ${fixedHtml.length}');
     final doc = html_parser.parse(fixedHtml);
     final body = doc.body ?? doc.documentElement;
-    if (body == null) return [htmlContent];
+    if (body == null) {
+      debugPrint('[HTML_PAGINATOR] No body found, returning original HTML');
+      return [htmlContent];
+    }
 
     final blocks = <_HtmlBlock>[];
     _collectBlocks(body, blocks);
+    debugPrint('[HTML_PAGINATOR] Collected ${blocks.length} blocks');
 
     if (blocks.isEmpty) {
       final text = body.text.trim();
-      if (text.isNotEmpty) return ['<p>$text</p>'];
+      if (text.isNotEmpty) {
+        debugPrint('[HTML_PAGINATOR] No blocks but has text, returning as paragraph');
+        return ['<p>$text</p>'];
+      }
+      debugPrint('[HTML_PAGINATOR] No blocks and no text, returning original HTML');
       return [htmlContent];
     }
 
     final pages = <String>[];
     var currentPageBlocks = <_HtmlBlock>[];
     var currentPageHeight = 0.0;
+    
+    // Calculate total height of all blocks
+    final totalBlocksHeight = blocks.fold(0.0, (sum, block) => sum + _measureBlockHeight(block));
+    debugPrint('[HTML_PAGINATOR] Starting pagination with pageHeight=$pageHeight, pageWidth=$pageWidth');
+    debugPrint('[HTML_PAGINATOR] Total blocks: ${blocks.length}, total height: $totalBlocksHeight');
+    debugPrint('[HTML_PAGINATOR] pageHeight > totalBlocksHeight: ${pageHeight > totalBlocksHeight}');
+    
+    // Check if there are images in the HTML
+    final totalImages = blocks.fold(0, (sum, block) => sum + _countImagesInBlock(block));
+    if (totalImages > 0) {
+      debugPrint('[HTML_PAGINATOR] Total images found: $totalImages');
+    }
 
     for (final block in blocks) {
       final blockHeight = _measureBlockHeight(block);
+      debugPrint('[HTML_PAGINATOR] Block tag=${block.tag}, height=$blockHeight, textLength=${block.text.length}');
 
       if (currentPageHeight + blockHeight <= pageHeight) {
         currentPageBlocks.add(block);
         currentPageHeight += blockHeight;
+        debugPrint('[HTML_PAGINATOR] Added to current page, total height: $currentPageHeight');
       } else if (currentPageBlocks.isEmpty) {
+        debugPrint('[HTML_PAGINATOR] Block too tall for page, creating new page');
         pages.add(block.html);
       } else {
+        debugPrint('[HTML_PAGINATOR] Page full (height: $currentPageHeight + $blockHeight > $pageHeight), starting new page');
         pages.add(_serializePage(currentPageBlocks));
         currentPageBlocks = [block];
         currentPageHeight = blockHeight;
@@ -73,9 +108,21 @@ class HtmlPaginator {
     }
 
     if (currentPageBlocks.isNotEmpty) {
+      debugPrint('[HTML_PAGINATOR] Adding final page with ${currentPageBlocks.length} blocks, height: $currentPageHeight');
       pages.add(_serializePage(currentPageBlocks));
     }
 
+    debugPrint('[HTML_PAGINATOR] Generated ${pages.length} pages');
+    if (pages.length == 1) {
+      debugPrint('[HTML_PAGINATOR] WARNING: Only 1 page! Check if all content fits or pageHeight is too large');
+      debugPrint('[HTML_PAGINATOR] totalBlocksHeight=$totalBlocksHeight, pageHeight=$pageHeight');
+      if (totalBlocksHeight <= pageHeight) {
+        debugPrint('[HTML_PAGINATOR] REASON: All content fits on one page (total height $totalBlocksHeight <= page height $pageHeight)');
+      }
+    }
+    for (var i = 0; i < pages.length; i++) {
+      debugPrint('[HTML_PAGINATOR] Page $i: ${pages[i].length} chars');
+    }
     return pages.isEmpty ? [htmlContent] : pages;
   }
 
@@ -90,6 +137,17 @@ class HtmlPaginator {
     if (tag == 'table') {
       final rows = block.element?.querySelectorAll('tr').length ?? 1;
       return rows * (fontSize * 1.5 + 8.0) + fontSize * 0.6;
+    }
+    
+    // Check for images inside this block (e.g., img tags inside a div or p)
+    // Images embedded as base64 data URIs won't have height/width attributes,
+    // so we estimate based on the page width
+    final imgCount = _countImagesInBlock(block);
+    if (imgCount > 0) {
+      debugPrint('[HTML_PAGINATOR] Found $imgCount images in block with tag=$tag');
+      // Estimate height for each image (assume images are full-width)
+      // Use a reasonable default height for embedded images
+      return _estimateBlockWithImages(block, imgCount);
     }
 
     // Build TextSpan matching _styleForTag + _buildSpans logic
@@ -280,25 +338,64 @@ class HtmlPaginator {
     return false;
   }
 
+  int _countImagesInBlock(_HtmlBlock block) {
+    if (block.element == null) {
+      // Count img tags in HTML string
+      return RegExp(r'<img[^>]*>', caseSensitive: false).allMatches(block.html).length;
+    }
+    return block.element!.querySelectorAll('img').length;
+  }
+
+  /// Estimates the height of a block that contains images
+  double _estimateBlockWithImages(_HtmlBlock block, int imgCount) {
+    // For blocks with images, we need to account for the image heights
+    // Since the images are embedded as base64, they won't have width/height attributes
+    // We estimate based on the page width and assume images are displayed at reasonable heights
+    
+    // Try to find actual image dimensions from the original EPUB (before base64 conversion)
+    // This won't work for base64 images, but we try anyway
+    double imagesHeight = 0.0;
+    
+    if (block.element != null) {
+      final imgs = block.element!.querySelectorAll('img');
+      for (final img in imgs) {
+        final height = _estimateSingleImageHeight(img);
+        imagesHeight += height;
+      }
+    }
+    
+    if (imagesHeight > 0) {
+      debugPrint('[HTML_PAGINATOR] Estimated images height: $imagesHeight for $imgCount images');
+      return imagesHeight + fontSize * 0.6;
+    }
+    
+    // Fallback: estimate each image as a significant portion of the page
+    // This ensures images get their own pages or at least significant space
+    final estimatedImageHeight = pageHeight * 0.6;  // 60% of page height per image
+    debugPrint('[HTML_PAGINATOR] Using fallback image height: $estimatedImageHeight per image');
+    return estimatedImageHeight * imgCount + fontSize * 0.6;
+  }
+
+  double _estimateSingleImageHeight(html_dom.Element img) {
+    final widthAttr = img.attributes['width'];
+    final heightAttr = img.attributes['height'];
+    if (widthAttr != null && heightAttr != null) {
+      final imgW = double.tryParse(widthAttr.replaceAll(RegExp(r'[^0-9.]'), ''));
+      final imgH = double.tryParse(heightAttr.replaceAll(RegExp(r'[^0-9.]'), ''));
+      if (imgW != null && imgW > 0 && imgH != null) {
+        return (imgH * pageWidth / imgW).clamp(50.0, pageHeight * 0.8);
+      }
+    }
+    // Default height for images without dimensions
+    return pageHeight * 0.6;  // 60% of page height
+  }
+
   double _estimateImageHeight(_HtmlBlock block) {
     if (block.element == null) return 200.0;
     final target = block.tag == 'img'
         ? block.element!
         : (block.element!.querySelector('img') ?? block.element!);
-    final widthAttr = target.attributes['width'];
-    final heightAttr = target.attributes['height'];
-    if (widthAttr != null && heightAttr != null) {
-      final imgW = double.tryParse(
-        widthAttr.replaceAll(RegExp(r'[^0-9.]'), ''),
-      );
-      final imgH = double.tryParse(
-        heightAttr.replaceAll(RegExp(r'[^0-9.]'), ''),
-      );
-      if (imgW != null && imgW > 0 && imgH != null) {
-        return (imgH * pageWidth / imgW).clamp(50.0, pageHeight * 0.8);
-      }
-    }
-    return 200.0;
+    return _estimateSingleImageHeight(target);
   }
 
   String _serializePage(List<_HtmlBlock> blocks) {

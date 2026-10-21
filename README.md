@@ -1230,12 +1230,30 @@ The package handles various error scenarios:
 
 ### Debugging
 
-Enable debug logging:
-```dart
-import 'package:flutter/foundation.dart';
-
-debugPrint('My debug message');
+The package now includes comprehensive debug logging throughout the entire flow. Enable it by running:
+```bash
+flutter run --verbose
 ```
+
+Or filter for package-specific logs:
+```bash
+flutter run 2>&1 | grep -E "\[CosmosEpub\]|\[SHOW_EPUB\]|\[PAGINATE\]|\[HTML_PAGINATOR\]|\[EPUB_PARSER\]"
+```
+
+**Log Tags:**
+- `[CosmosEpub]` - Book opening process
+- `[SHOW_EPUB]` - Chapter loading and UI interactions
+- `[EPUB_PARSER]` - EPUB parsing and chapter extraction
+- `[PAGINATE]` - Page creation and flipping logic
+- `[HTML_PAGINATOR]` - HTML block processing and pagination
+
+**Common Issues Identified by Logs:**
+
+1. **No pages created** - Check for `[PAGINATE] RenderBox has no size yet` - pagination is being called before layout
+2. **Only 1 page** - Check `[HTML_PAGINATOR] Generated 1 pages` - content fits on one page or HTML is very short
+3. **Empty content** - Check `[SHOW_EPUB] Chapter HTML length: 0` - chapter content couldn't be extracted
+
+For more details, see [DEBUG_LOG_GUIDE.md](DEBUG_LOG_GUIDE.md).
 
 Check Isar database:
 ```dart
@@ -1280,4 +1298,4 @@ See [LICENSE](LICENSE) file for details.
 
 ---
 
-*Last updated: 2026-10-21*
+*Last updated: 2026-10-21 (Added comprehensive debug logging and pagination retry fixes)
