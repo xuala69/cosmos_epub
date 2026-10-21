@@ -70,14 +70,20 @@ void main() {
       ),
     );
 
-    for (int i = 0; i < 30; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
+    // The engine's render object is not a widget, so it is addressed through
+    // the widget that owns it.
+    final bookFinder = find.byWidgetPredicate(
+      (w) => w.runtimeType.toString() == 'TurnableBookRenderObjectWidget',
+    );
+    // Pagination runs in a post-frame callback; pump frames (without a
+    // fixed timeout) until the book is actually mounted.
+    for (int i = 0; i < 100; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (bookFinder.evaluate().isNotEmpty) break;
     }
 
-    final book = tester.renderObject<RenderTurnableBook>(
-      find.byType(RenderTurnableBook),
-    );
-    final size = tester.getSize(find.byType(RenderTurnableBook));
+    final book = tester.renderObject<RenderTurnableBook>(bookFinder);
+    final size = tester.getSize(bookFinder);
     // ignore: avoid_debugPrint
     debugPrint(
       'size=$size pages=${book.pageCount} current=${book.pageFlip.getCurrentPageIndex()}',
@@ -106,5 +112,14 @@ void main() {
     debugPrint(
       'afterUp state=${book.pageFlip.getState()} flipping=${book.flippingPage != null}',
     );
+
+    // Let the release animation finish before unmounting; the engine keeps a
+    // frame callback running otherwise and touches its disposed render object
+    // during test teardown.
+    for (int i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 16));
   });
 }

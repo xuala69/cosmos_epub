@@ -32,6 +32,10 @@ class ChaptersList extends StatelessWidget {
     return Directionality(
       textDirection: textDirection,
       child: Scaffold(
+        // Paint the drawer background with the Scaffold's own Material. A
+        // Container(color: …) here became a ColoredBox above the ListTiles,
+        // which hid their ink splashes and raised a Flutter assertion.
+        backgroundColor: backColor,
         appBar: AppBar(
           toolbarHeight: 40.h,
           backgroundColor: backColor,
@@ -44,7 +48,6 @@ class ChaptersList extends StatelessWidget {
         ),
         body: SafeArea(
           child: Container(
-            color: backColor,
             padding: EdgeInsets.all(10.h),
             child: Column(
               children: [

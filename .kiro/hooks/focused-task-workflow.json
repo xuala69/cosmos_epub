@@ -1,0 +1,13 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Focused Task Workflow",
+      "trigger": "UserPromptSubmit",
+      "action": {
+        "type": "agent",
+        "prompt": "Follow this disciplined workflow for every task the user assigns:\n\n1. **Focus only on the task at hand.** Do not add unrelated features, refactor surrounding code that doesn't need it, or expand scope beyond what was explicitly asked. Solve the problem that was asked about and nothing more. If you spot an unrelated issue, mention it briefly but do not fix it unless asked.\n\n2. **Analyze possible fixes before implementing.** Before writing code, consider the available approaches. Weigh tradeoffs (correctness, simplicity, performance, maintainability, risk). Then implement the best solution and briefly explain why you chose it over the alternatives.\n\n3. **Write tests to verify the task.** After implementing, write tests that exercise the changed behavior and confirm the task is actually solved. Run them and report results. If no test framework exists, set up the standard one for the project's language and ecosystem. \"Read the code and confirm it looks right\" is not verification.\n\n4. **Document the work properly.** Once the task is verified, add or update documentation appropriate to the change: code comments for non-obvious logic, doc comments on public APIs, and updates to any relevant README or docs files. Keep documentation accurate and concise — do not over-document obvious code.\n\nMaintain this order: analyze → implement best solution → test → document. Do not skip steps."
+      }
+    }
+  ]
+}

@@ -179,7 +179,10 @@ class ShowEpubState extends State<ShowEpub> {
         html_parser.parse(htmlContent).documentElement?.text ?? '';
     currentTextDirection = RTLHelper.getTextDirection(textContent);
 
-    controllerPaging.paginate();
+    // Rebuild first: a chapter switch arrives with the new [htmlContent], so
+    // PagingWidget re-paginates by itself from didUpdateWidget. Calling
+    // paginate() before/around that rebuild only queued extra passes (and ran
+    // them with the old content), which showed up as spinner → text → spinner.
     setupNavButtons();
   }
 
@@ -343,9 +346,10 @@ class ShowEpubState extends State<ShowEpub> {
 
                                             gs.write(libFont, selectedFont);
 
-                                            setState(() {});
-                                            controllerPaging.paginate();
+                                            // Rebuild the reader so it gets the
+                                            // new font, then re-paginate.
                                             updateUI();
+                                            controllerPaging.paginate();
                                           },
                                           items: fontNames
                                               .map<DropdownMenuItem<String>>((
@@ -397,10 +401,16 @@ class ShowEpubState extends State<ShowEpub> {
                                   min: 15.0,
                                   max: 30.0,
                                   onChangeEnd: (double value) {
-                                    _fontSize = value;
+                                    setState(() {
+                                      _fontSize = value;
+                                      _fontSizeProgress = value;
+                                    });
 
                                     gs.write(libFontSize, _fontSize);
 
+                                    // Rebuild the reader with the new font
+                                    // size first, then regenerate the pages
+                                    // once they have been laid out with it.
                                     updateUI();
                                     controllerPaging.paginate();
                                   },
@@ -466,19 +476,33 @@ class ShowEpubState extends State<ShowEpub> {
     setState(() {});
   }
 
+  /// Guards against the boundary callbacks firing repeatedly while a chapter
+  /// change is still in flight (each flip at the boundary used to start one).
+  bool _chapterChangeInProgress = false;
+
   Future<void> nextChapter() async {
     final index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-    if (index < chaptersList.length - 1) {
-      await bookProgress.setCurrentPageIndex(bookId, 0);
-      await updateContentAccordingChapter(index + 1);
+    if (index < chaptersList.length - 1 && !_chapterChangeInProgress) {
+      _chapterChangeInProgress = true;
+      try {
+        await bookProgress.setCurrentPageIndex(bookId, 0);
+        await updateContentAccordingChapter(index + 1);
+      } finally {
+        _chapterChangeInProgress = false;
+      }
     }
   }
 
   Future<void> prevChapter() async {
     final index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-    if (index > 0) {
-      await bookProgress.setCurrentPageIndex(bookId, 0);
-      await updateContentAccordingChapter(index - 1);
+    if (index > 0 && !_chapterChangeInProgress) {
+      _chapterChangeInProgress = true;
+      try {
+        await bookProgress.setCurrentPageIndex(bookId, 0);
+        await updateContentAccordingChapter(index - 1);
+      } finally {
+        _chapterChangeInProgress = false;
+      }
     }
   }
 
@@ -697,9 +721,21 @@ class ShowEpubState extends State<ShowEpub> {
                                     : showPrevious,
                                 child: IconButton(
                                   onPressed: () {
-                                    currentTextDirection == TextDirection.rtl
-                                        ? nextChapter()
-                                        : prevChapter();
+                                    // First page of the chapter → previous
+                                    // chapter; otherwise flip one page back.
+                                    final rtl =
+                                        currentTextDirection ==
+                                        TextDirection.rtl;
+                                    final atChapterStart =
+                                        controllerPaging.currentPage() == 0;
+                                    if (!rtl && atChapterStart) {
+                                      prevChapter();
+                                    } else if (rtl) {
+                                      // RTL: the left arrow advances the book.
+                                      nextChapter();
+                                    } else {
+                                      controllerPaging.previousPage();
+                                    }
                                   },
                                   icon: Icon(
                                     currentTextDirection == TextDirection.rtl
@@ -742,9 +778,18 @@ class ShowEpubState extends State<ShowEpub> {
                                     : showNext,
                                 child: IconButton(
                                   onPressed: () {
-                                    currentTextDirection == TextDirection.rtl
-                                        ? prevChapter()
-                                        : nextChapter();
+                                    final rtl =
+                                        currentTextDirection ==
+                                        TextDirection.rtl;
+                                    final atChapterStart =
+                                        controllerPaging.currentPage() == 0;
+                                    if (!rtl && atChapterStart) {
+                                      prevChapter();
+                                    } else if (rtl) {
+                                      nextChapter();
+                                    } else {
+                                      controllerPaging.previousPage();
+                                    }
                                   },
                                   icon: Icon(
                                     currentTextDirection == TextDirection.rtl

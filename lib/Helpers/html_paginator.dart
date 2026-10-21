@@ -15,6 +15,10 @@ class HtmlPaginator {
   final String? fontPackage;
   final TextDirection textDirection;
 
+  /// Text scaling from accessibility settings. Must be applied during
+  /// measurement, otherwise pages are overfilled when the user enlarges text.
+  final TextScaler textScaler;
+
   HtmlPaginator({
     required this.pageWidth,
     required this.pageHeight,
@@ -22,6 +26,7 @@ class HtmlPaginator {
     this.fontFamily = 'Segoe',
     this.fontPackage,
     this.textDirection = TextDirection.ltr,
+    this.textScaler = TextScaler.noScaling,
   });
 
   TextStyle get _baseStyle => TextStyle(
@@ -102,6 +107,7 @@ class HtmlPaginator {
       text: TextSpan(children: spans),
       textDirection: textDirection,
       textAlign: TextAlign.justify,
+      textScaler: textScaler,
     );
     painter.layout(maxWidth: pageWidth);
     final textHeight = painter.height;
@@ -133,6 +139,7 @@ class HtmlPaginator {
     }
   }
 
+  /// Mirrors HtmlTextBuilder._applyInlineTag so measurement matches rendering.
   TextStyle _applyInlineTag(String tag, TextStyle base) {
     switch (tag) {
       case 'b' || 'strong':
@@ -141,6 +148,12 @@ class HtmlPaginator {
         return base.copyWith(fontStyle: FontStyle.italic);
       case 'u' || 'ins':
         return base.copyWith(decoration: TextDecoration.underline);
+      case 's' || 'del' || 'strike':
+        return base.copyWith(decoration: TextDecoration.lineThrough);
+      case 'sup':
+        return base.copyWith(fontSize: (base.fontSize ?? fontSize) * 0.7);
+      case 'sub':
+        return base.copyWith(fontSize: (base.fontSize ?? fontSize) * 0.7);
       case 'code':
         return base.copyWith(fontFamily: 'monospace', package: null);
       default:
