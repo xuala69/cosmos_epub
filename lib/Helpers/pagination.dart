@@ -314,17 +314,25 @@ class _PagingWidgetState extends State<PagingWidget> {
   void didUpdateWidget(covariant PagingWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.spine, widget.spine)) {
-      // A different book: start over with the spinner.
-      setState(() => _refs = []);
+      // A different book: start over with the spinner (build follows).
+      _refs = [];
     }
-    if (_inputChanged()) _requestPaginate();
+    if (_inputChanged()) _requestPaginateAfterFrame();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     // System / accessibility text scaling changed → regenerate pages.
-    if (_inputChanged()) _requestPaginate();
+    if (_inputChanged()) _requestPaginateAfterFrame();
+  }
+
+  /// A pass reports the new location to the parent, which rebuilds it, so it
+  /// must not start while the tree is building (font size change, …).
+  void _requestPaginateAfterFrame() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _requestPaginate();
+    });
   }
 
   /// True when the reader would have to paginate again: book, font size,
@@ -690,6 +698,13 @@ class _PagingWidgetState extends State<PagingWidget> {
               : null,
           settings: _resolvedSettings().copyWith(
             startPage: _pendingStartPage.clamp(0, _refs.length - 1),
+          ),
+          // Theme/colour changes keep the page list but change how pages look:
+          // the engine caches built pages, so tell it to build them again.
+          pageRevision: Object.hash(
+            widget.style,
+            widget.backgroundColor,
+            widget.accentColor,
           ),
           onPageChanged: _onPageChanged,
           builder: (context, index, constraints) => _pageWidget(index),
