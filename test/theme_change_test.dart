@@ -1,5 +1,4 @@
 import 'package:cosmos_epub/Helpers/pagination.dart';
-import 'package:cosmos_epub/Helpers/progress_singleton.dart';
 import 'package:cosmos_epub/Model/chapter_model.dart';
 import 'package:cosmos_epub/show_epub.dart' as se;
 import 'package:flutter/material.dart';
@@ -8,10 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:turnable_page_plus/turnable_page_plus.dart';
 import 'package:turnable_page_plus/src/render/render_turnable_book.dart';
 
-class _FakeProgress implements BookProgressSingleton {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
+import 'helpers.dart';
 
 String _html() => List.generate(
   60,
@@ -22,19 +18,12 @@ String _html() => List.generate(
 final _book = [SpineItem(href: 'a.xhtml', htmlContent: _html())];
 
 void main() {
-  se.bookProgress = _FakeProgress();
+  se.bookProgress = FakeProgress();
 
   testWidgets('changing the theme recolours the pages already built', (
     tester,
   ) async {
-    final original = FlutterError.onError;
-    FlutterError.onError = (d) {
-      if (d.exceptionAsString().contains('native peer has been collected')) {
-        return;
-      }
-      original?.call(d);
-    };
-    addTearDown(() => FlutterError.onError = original);
+    ignoreCanvasErrors();
 
     final dark = ValueNotifier(false);
     PagingTextHandler? handler;

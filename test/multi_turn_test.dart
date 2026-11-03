@@ -1,35 +1,12 @@
 import 'package:cosmos_epub/Helpers/pagination.dart';
 import 'package:cosmos_epub/Model/chapter_model.dart';
-import 'package:cosmos_epub/Helpers/progress_singleton.dart';
-import 'package:cosmos_epub/Model/book_progress_model.dart';
 import 'package:cosmos_epub/show_epub.dart' as se;
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turnable_page_plus/src/render/render_turnable_book.dart';
 
-class _FakeProgress implements BookProgressSingleton {
-  int page = 0;
-  @override
-  Future<bool> setCurrentChapterIndex(
-    String bookId,
-    int chapterIndex, {
-    bool keepPage = false,
-  }) async => true;
-
-  @override
-  Future<bool> setCurrentPageIndex(String bookId, int pageIndex) async {
-    page = pageIndex;
-    return true;
-  }
-
-  @override
-  BookProgressModel getBookProgress(String bookId) =>
-      BookProgressModel(currentPageIndex: page, currentChapterIndex: 0);
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
+import 'helpers.dart';
 
 String _html() => List.generate(
   60,
@@ -40,17 +17,10 @@ String _html() => List.generate(
 final _book = [SpineItem(href: 'a.xhtml', htmlContent: _html())];
 
 void main() {
-  se.bookProgress = _FakeProgress();
+  se.bookProgress = FakeProgress();
 
   testWidgets('turning beyond page 1', (tester) async {
-    final original = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exceptionAsString().contains('native peer has been collected')) {
-        return;
-      }
-      original?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = original);
+    ignoreCanvasErrors();
 
     PagingTextHandler? handler;
 
@@ -88,7 +58,9 @@ void main() {
     }
 
     final book = tester.renderObject<RenderTurnableBook>(bookFinder);
-    debugPrint('Initial book pageCount=${book.pageCount}, current=${book.pageFlip.getCurrentPageIndex()}');
+    debugPrint(
+      'Initial book pageCount=${book.pageCount}, current=${book.pageFlip.getCurrentPageIndex()}',
+    );
 
     // Turn to page 1 via controller
     debugPrint('--- Turning to page 1 via handler.nextPage() ---');
@@ -115,4 +87,3 @@ void main() {
     debugPrint('After turn 3: current=${book.pageFlip.getCurrentPageIndex()}');
   });
 }
-

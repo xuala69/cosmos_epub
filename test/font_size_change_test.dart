@@ -1,5 +1,4 @@
 import 'package:cosmos_epub/Helpers/pagination.dart';
-import 'package:cosmos_epub/Helpers/progress_singleton.dart';
 import 'package:cosmos_epub/Model/chapter_model.dart';
 import 'package:cosmos_epub/show_epub.dart' as se;
 import 'package:flutter/material.dart';
@@ -7,10 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turnable_page_plus/src/render/render_turnable_book.dart';
 
-class _FakeProgress implements BookProgressSingleton {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
+import 'helpers.dart';
 
 String _html(String word) => List.generate(
   60,
@@ -24,7 +20,7 @@ final _book = [
 ];
 
 void main() {
-  se.bookProgress = _FakeProgress();
+  se.bookProgress = FakeProgress();
 
   testWidgets('changing the font size never builds during build', (
     tester,

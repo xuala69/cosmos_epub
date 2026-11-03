@@ -24,8 +24,10 @@
 ## Overview
 
 CosmosEpub is a Flutter package that provides a complete EPUB reading solution with:
-- **Realistic 3D page flip animations** powered by `turnable_page_plus`
-- **Text highlighting** with 6 color options and persistence
+- **Realistic 3D page flip animations** powered by `turnable_page_plus`, across the
+  whole book (cover, title page and chapter boundaries included)
+- **Text highlighting** with 6 color options and persistence (creating new
+  highlights is currently disabled, see below)
 - **Intelligent hyphenation** with Uzbek digraph support
 - **Infinite nested chapter support** with recursive TOC parsing
 - **RTL language detection** for Arabic, Persian, Hebrew, Urdu, and more
@@ -351,7 +353,9 @@ await CosmosEpub.deleteAllBooksProgress();
 **Database**: Uses Isar (via `isar_community`) for progress persistence. Only works on Android/iOS/Desktop (no web support).
 
 ### 3. Text Highlighting
-Users can select text and highlight it with one of 6 colors:
+Stored highlights are drawn in one of 6 colors. Selecting text to create a
+highlight is currently disabled, because selection gestures conflict with
+dragging pages to turn them; the API below still manages existing highlights:
 
 ```dart
 // Get all highlights for a book
@@ -406,10 +410,10 @@ await CosmosEpub.clearThemeCache();
 
 ### 5. Chapter Navigation
 - Infinite nested chapter support
-- Table of Contents with proper indentation
-- Previous/Next chapter navigation
+- Table of Contents with proper indentation; selecting an entry turns to it
+- Previous/Next page buttons that cross chapter boundaries
 - Auto-opens to last read position
-- Section title pages for TOC sections
+- Book read in spine order, including documents the TOC does not list
 
 ### 6. Page Flip Animation
 - Realistic 3D page curl effect
@@ -527,7 +531,7 @@ class HighlightStorage {
 1. **Add dependency** to `pubspec.yaml`:
 ```yaml
 dependencies:
-  cosmos_epub: ^1.0.1
+  cosmos_epub: ^2.0.0
 ```
 
 2. **Run**:

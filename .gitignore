@@ -35,3 +35,6 @@ build/
 *.iml
 # Widget Preview related
 .widget_preview/
+
+# Android native build output
+**/.cxx/

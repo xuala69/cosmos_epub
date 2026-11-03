@@ -21,14 +21,9 @@ class EpubContentParser {
   late final Map<String, Uint8List> imageMap;
 
   EpubContentParser(this.epubBook) {
-    debugPrint('[EPUB_PARSER] Parsing EPUB book: ${epubBook.Title}');
     spine = _buildSpine();
     toc = _buildToc();
-    debugPrint(
-      '[EPUB_PARSER] Built ${spine.length} spine items, ${toc.length} TOC entries',
-    );
     imageMap = _extractImages();
-    debugPrint('[EPUB_PARSER] Extracted ${imageMap.length} images');
   }
 
   static String _fileName(String href) =>

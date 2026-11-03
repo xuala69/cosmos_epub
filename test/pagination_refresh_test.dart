@@ -1,7 +1,5 @@
 import 'package:cosmos_epub/Helpers/pagination.dart';
 import 'package:cosmos_epub/Model/chapter_model.dart';
-import 'package:cosmos_epub/Helpers/progress_singleton.dart';
-import 'package:cosmos_epub/Model/book_progress_model.dart';
 import 'package:cosmos_epub/show_epub.dart' as se;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -10,24 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:turnable_page_plus/turnable_page_plus.dart';
 import 'package:turnable_page_plus/src/render/render_turnable_book.dart';
 
-class _FakeProgress implements BookProgressSingleton {
-  @override
-  Future<bool> setCurrentChapterIndex(
-    String bookId,
-    int chapterIndex, {
-    bool keepPage = false,
-  }) async => true;
-
-  @override
-  Future<bool> setCurrentPageIndex(String bookId, int pageIndex) async => true;
-
-  @override
-  BookProgressModel getBookProgress(String bookId) =>
-      BookProgressModel(currentPageIndex: 0, currentChapterIndex: 0);
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
+import 'helpers.dart';
 
 String _html() => List.generate(
   40,
@@ -38,7 +19,7 @@ String _html() => List.generate(
 final _book = [SpineItem(href: 'a.xhtml', htmlContent: _html())];
 
 void main() {
-  se.bookProgress = _FakeProgress();
+  se.bookProgress = FakeProgress();
 
   // ignore: unused_field
   late PagingTextHandler handler;
@@ -270,8 +251,10 @@ void main() {
     // to the previous chapter instead.
     await tester.pump(const Duration(milliseconds: 16));
     // ignore: avoid_print
-    print('engine index=${book.pageFlip.getCurrentPageIndex()} '
-        'handler index=${handler.currentPage()}');
+    print(
+      'engine index=${book.pageFlip.getCurrentPageIndex()} '
+      'handler index=${handler.currentPage()}',
+    );
     expect(handler.currentPage(), 0);
     expect(handler.previousPage(), isFalse);
   });

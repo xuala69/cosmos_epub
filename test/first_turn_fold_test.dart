@@ -1,26 +1,12 @@
 import 'package:cosmos_epub/Helpers/pagination.dart';
 import 'package:cosmos_epub/Model/chapter_model.dart';
-import 'package:cosmos_epub/Helpers/progress_singleton.dart';
 import 'package:cosmos_epub/show_epub.dart' as se;
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turnable_page_plus/src/render/render_turnable_book.dart';
 
-class _FakeProgress implements BookProgressSingleton {
-  @override
-  Future<bool> setCurrentChapterIndex(
-    String bookId,
-    int chapterIndex, {
-    bool keepPage = false,
-  }) async => true;
-
-  @override
-  Future<bool> setCurrentPageIndex(String bookId, int pageIndex) async => true;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
+import 'helpers.dart';
 
 String _html() => List.generate(
   60,
@@ -31,21 +17,12 @@ String _html() => List.generate(
 final _book = [SpineItem(href: 'a.xhtml', htmlContent: _html())];
 
 void main() {
-  se.bookProgress = _FakeProgress();
+  se.bookProgress = FakeProgress();
 
   for (final parentRebuilds in [false, true]) {
     testWidgets('every turn, including 0 -> 1, folds a page '
         '(parent rebuilds on page flip: $parentRebuilds)', (tester) async {
-      final original = FlutterError.onError;
-      FlutterError.onError = (details) {
-        if (details.exceptionAsString().contains(
-          'native peer has been collected',
-        )) {
-          return;
-        }
-        original?.call(details);
-      };
-      addTearDown(() => FlutterError.onError = original);
+      ignoreCanvasErrors();
 
       PagingTextHandler? handler;
       late StateSetter parentSetState;
@@ -110,16 +87,7 @@ void main() {
   }
 
   testWidgets('swipe from index 0 folds a page', (tester) async {
-    final original = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exceptionAsString().contains(
-        'native peer has been collected',
-      )) {
-        return;
-      }
-      original?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = original);
+    ignoreCanvasErrors();
 
     await tester.pumpWidget(
       MaterialApp(

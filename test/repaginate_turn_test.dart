@@ -1,35 +1,12 @@
 import 'package:cosmos_epub/Helpers/pagination.dart';
 import 'package:cosmos_epub/Model/chapter_model.dart';
-import 'package:cosmos_epub/Helpers/progress_singleton.dart';
 import 'package:cosmos_epub/show_epub.dart' as se;
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turnable_page_plus/src/render/render_turnable_book.dart';
 
-class _FakeProgress implements BookProgressSingleton {
-  int page = 0;
-  int chapter = 0;
-
-  @override
-  Future<bool> setCurrentChapterIndex(
-    String bookId,
-    int chapterIndex, {
-    bool keepPage = false,
-  }) async {
-    chapter = chapterIndex;
-    return true;
-  }
-
-  @override
-  Future<bool> setCurrentPageIndex(String bookId, int pageIndex) async {
-    page = pageIndex;
-    return true;
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
+import 'helpers.dart';
 
 String _html(int paragraphs) => List.generate(
   paragraphs,
@@ -43,21 +20,12 @@ Future<void> _pumpFrames(WidgetTester tester, [int frames = 120]) async {
 }
 
 void main() {
-  se.bookProgress = _FakeProgress();
+  se.bookProgress = FakeProgress();
 
   testWidgets('pages still turn after the content is re-paginated', (
     tester,
   ) async {
-    final original = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exceptionAsString().contains(
-        'native peer has been collected',
-      )) {
-        return;
-      }
-      original?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = original);
+    ignoreCanvasErrors();
 
     PagingTextHandler? handler;
     final html = ValueNotifier<String>(_html(40));

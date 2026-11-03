@@ -407,39 +407,31 @@ class _PagingWidgetState extends State<PagingWidget> {
     });
   }
 
-  /// First two words of the page at [location], to find the same text again
-  /// after re-pagination.
-  String? _needleAt((int, int) location) {
+  /// Letters of a page (no markup, whitespace or hyphens): a measure of
+  /// how far into a spine item a page starts that survives re-pagination.
+  static int _letters(String html) => html
+      .replaceAll(RegExp(r'<[^>]*>'), '')
+      .replaceAll(RegExp('[\\s\u00AD-]'), '')
+      .length;
+
+  /// Letters of spine item [location.$1] before page [location.$2], or null
+  /// when that item has not been paginated.
+  int? _lettersBefore((int, int) location) {
     final pages = location.$1 < _itemPages.length
         ? _itemPages[location.$1]
         : null;
-    if (pages == null || location.$2 >= pages.length) return null;
-    final words = _plainText(
-      pages[location.$2],
-    ).split(' ').where((w) => w.isNotEmpty).take(2).toList();
-    return words.isEmpty ? null : words.join(' ');
+    if (pages == null) return null;
+    return pages.take(location.$2).fold<int>(0, (n, p) => n + _letters(p));
   }
 
-  static String _plainText(String html) => html
-      .replaceAll(RegExp(r'<[^>]*>'), ' ')
-      .replaceAll(_shyChar, '')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim()
-      .toLowerCase();
-
-  /// Page of [pages] that starts with [needle], searching from [from] onward
-  /// first (short needles also appear earlier in the text).
-  static int _findPage(List<String> pages, int from, String? needle) {
-    from = from.clamp(0, pages.length - 1);
-    if (needle != null) {
-      for (final i in [
-        for (var i = from; i < pages.length; i++) i,
-        for (var i = 0; i < from; i++) i,
-      ]) {
-        if (_plainText(pages[i]).startsWith(needle)) return i;
-      }
+  /// Page of [pages] on which the letter at [offset] is.
+  static int _pageContaining(List<String> pages, int offset) {
+    var seen = 0;
+    for (var i = 0; i < pages.length; i++) {
+      seen += _letters(pages[i]);
+      if (seen > offset) return i;
     }
-    return from;
+    return pages.length - 1;
   }
 
   /// Text area of a page. Pages are measured and drawn with the same insets,
@@ -484,10 +476,8 @@ class _PagingWidgetState extends State<PagingWidget> {
     final jump = _jumpAnchor;
     _jumpAnchor = null;
     final (anchor, anchorPage) = jump ?? _location;
-    final needle = jump == null ? _needleAt((anchor, anchorPage)) : null;
-    final oldCount = anchor < _itemPages.length
-        ? _itemPages[anchor]?.length
-        : null;
+    // Re-pagination keeps the first letter of the page being read in view.
+    final offset = jump == null ? _lettersBefore((anchor, anchorPage)) : null;
 
     _paginatedSpine = widget.spine;
     _paginatedFontSize = widget.style.fontSize ?? 17.0;
@@ -502,11 +492,7 @@ class _PagingWidgetState extends State<PagingWidget> {
       pageSize,
       scaler,
     );
-    // Same text as before, or the same relative position in the item.
-    var page = needle == null && oldCount != null && oldCount > 0
-        ? anchorPage * pages.length ~/ oldCount
-        : anchorPage;
-    page = _findPage(pages, page, needle);
+    final page = offset == null ? anchorPage : _pageContaining(pages, offset);
 
     if (!mounted || token != _paginateToken) return;
     setState(() {
@@ -592,24 +578,41 @@ class _PagingWidgetState extends State<PagingWidget> {
     widget.onLocationChanged?.call(spineIndex, page);
   }
 
-  /// Animated page turn used by the reader's buttons.
-  bool _flipToNextPage() {
-    if (_refs.isEmpty) return false;
-    if (_currentPageIndex < _refs.length - 1) {
-      return _flipController.pageFlipInstance != null &&
-          _flipController.nextPage();
-    }
-    if (_wholeBookLoaded) {
-      widget.onLastPage(_currentPageIndex, _refs.length);
-    }
-    return false;
-  }
+  /// Animated page turns used by the reader's buttons.
+  bool _flipToNextPage() => _requestTurn(forward: true);
+  bool _flipToPreviousPage() => _requestTurn(forward: false);
 
-  /// Animated backward page turn (see [_flipToNextPage]).
-  bool _flipToPreviousPage() {
-    if (_refs.isEmpty || _currentPageIndex <= 0) return false;
-    return _flipController.pageFlipInstance != null &&
-        _flipController.previousPage();
+  /// Turns one page, or retries for a few frames when the engine cannot start
+  /// the turn yet: right after its first layout or a background rebuild, or
+  /// while the neighbouring spine item is still being added. Dropping those
+  /// presses lost taps. A turn that is already running refuses the press.
+  bool _requestTurn({required bool forward, int attempts = 30}) {
+    if (_refs.isEmpty) return false;
+    final atEdge = forward
+        ? _currentPageIndex >= _refs.length - 1
+        : _currentPageIndex <= 0;
+    final moreComing = forward ? _last < widget.spine.length - 1 : _first > 0;
+    if (atEdge && !moreComing) {
+      if (forward && _wholeBookLoaded) {
+        widget.onLastPage(_currentPageIndex, _refs.length);
+      }
+      return false;
+    }
+    final engine = _flipController.pageFlipInstance;
+    if (engine != null && engine.getState()?.value != 'read') return false;
+    if (!atEdge &&
+        engine != null &&
+        (forward
+            ? _flipController.nextPage()
+            : _flipController.previousPage())) {
+      return true;
+    }
+    if (attempts == 0) return false;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _requestTurn(forward: forward, attempts: attempts - 1);
+    });
+    SchedulerBinding.instance.scheduleFrame();
+    return true;
   }
 
   void _goToSpineItem(int spineIndex) {

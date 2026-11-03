@@ -1,1 +1,43 @@
+# With a .pubignore, pub stops reading .gitignore here, so its rules are
+# repeated below; otherwise build outputs get published.
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+build/
+/pubspec.lock
+.fvm/
+.fvmrc
+.widget_preview/
+
+# Android generated/cache files
+**/.gradle/
+**/local.properties
+**/captures/
+**/build/
 **/.cxx/
+
+# iOS generated/cache files
+**/.symlinks/
+**/Pods/
+**/Flutter/ephemeral/
+**/Flutter/Generated.xcconfig
+**/Flutter/flutter_export_environment.sh
+**/xcuserdata/
+**/*.xcuserstate
+
+# Editors and local tooling
+.idea/
+*.iml
+.vscode/
+.kiro/
+.github/
+graphify-out/
+**/.DS_Store
+
+# Development notes, not package documentation
+CHANGES_SUMMARY.md
+DEBUG_LOG_GUIDE.md

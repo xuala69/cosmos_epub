@@ -1,44 +1,10 @@
-import 'dart:io';
-
 import 'package:cosmos_epub/Helpers/html_paginator.dart';
-import 'package:cosmos_epub/Helpers/progress_singleton.dart';
-import 'package:cosmos_epub/Model/book_progress_model.dart';
-import 'package:cosmos_epub/show_epub.dart';
-import 'package:epubx/epubx.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:turnable_page_plus/turnable_page_plus.dart';
 
-class _FakeProgress implements BookProgressSingleton {
-  _FakeProgress(this.chapter, this.page);
-  int chapter;
-  int page;
-
-  @override
-  Future<bool> setCurrentChapterIndex(
-    String bookId,
-    int chapterIndex, {
-    bool keepPage = false,
-  }) async {
-    chapter = chapterIndex;
-    return true;
-  }
-
-  @override
-  Future<bool> setCurrentPageIndex(String bookId, int pageIndex) async {
-    page = pageIndex;
-    return true;
-  }
-
-  @override
-  BookProgressModel getBookProgress(String bookId) =>
-      BookProgressModel(currentPageIndex: page, currentChapterIndex: chapter);
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
+import 'helpers.dart';
 
 String _plain(String html) => (html_parser.parse(html).body?.text ?? '')
     .replaceAll(RegExp(r'\s+'), ' ')
@@ -91,41 +57,9 @@ void main() {
   testWidgets('with huge text, page content stays inside the text area', (
     tester,
   ) async {
-    final original = FlutterError.onError;
-    FlutterError.onError = (d) {
-      if (d.exceptionAsString().contains('native peer has been collected')) {
-        return;
-      }
-      original?.call(d);
-    };
-    addTearDown(() => FlutterError.onError = original);
     tester.platformDispatcher.textScaleFactorTestValue = 2.0;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    bookProgress = _FakeProgress(3, 5);
-
-    final book = (await tester.runAsync(
-      () async => EpubReader.readBook(
-        await File('example/assets/book.epub').readAsBytes(),
-      ),
-    ))!;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ScreenUtilInit(
-            designSize: const Size(375, 812),
-            builder: (_, _) => ShowEpub(
-              epubBook: book,
-              accentColor: Colors.blue,
-              bookId: 'test_book',
-              chapterListTitle: 'Contents',
-            ),
-          ),
-        ),
-      ),
-    );
-    for (var i = 0; i < 300; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
+    final state = await openShowEpub(tester, FakeProgress(3, 5));
 
     // Each page: ClipRect (the text area) > OverflowBox > Column (the text).
     final areas = find.descendant(
@@ -153,15 +87,11 @@ void main() {
     // Showing / hiding the bars does not resize the reader.
     final reader = find.byType(TurnablePage);
     final size = tester.getSize(reader);
-    final state = tester.state<ShowEpubState>(find.byType(ShowEpub));
     state.showHeader = false;
     state.updateUI();
-    for (var i = 0; i < 20; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
+    await pumpFrames(tester, 20);
     expect(tester.getSize(reader), size);
 
-    await tester.pumpWidget(const SizedBox());
-    await tester.pump(const Duration(milliseconds: 16));
+    await closeReader(tester);
   });
 }
