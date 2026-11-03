@@ -8,8 +8,10 @@ import 'functions.dart';
 
 // ignore: must_be_immutable
 class ChaptersList extends StatelessWidget {
-  List<LocalChapterModel> chapters = [];
-  final String bookId;
+  List<TocEntry> chapters = [];
+
+  /// Entry of the page being read; highlighted in the list.
+  final int currentIndex;
   final Widget? leadingIcon;
   final Color accentColor;
   final String chapterListTitle;
@@ -17,7 +19,7 @@ class ChaptersList extends StatelessWidget {
   ChaptersList({
     super.key,
     required this.chapters,
-    required this.bookId,
+    required this.currentIndex,
     this.leadingIcon,
     required this.accentColor,
     required this.chapterListTitle,
@@ -26,7 +28,7 @@ class ChaptersList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Detect text direction from chapter titles
-    String allChapterText = chapters.map((c) => c.chapter).join(' ');
+    String allChapterText = chapters.map((c) => c.title).join(' ');
     TextDirection textDirection = RTLHelper.getTextDirection(allChapterText);
 
     return Directionality(
@@ -41,7 +43,7 @@ class ChaptersList extends StatelessWidget {
           backgroundColor: backColor,
           leading: InkWell(
             onTap: () {
-              Navigator.of(context).pop(false);
+              Navigator.of(context).pop();
             },
             child: Icon(Icons.close, color: fontColor, size: 20.h),
           ),
@@ -70,14 +72,7 @@ class ChaptersList extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           ListTile(
-                            onTap: () async {
-                              await bookProgress.setCurrentChapterIndex(
-                                bookId,
-                                i,
-                              );
-                              // ignore: use_build_context_synchronously
-                              Navigator.of(context).pop(true);
-                            },
+                            onTap: () => Navigator.of(context).pop(i),
                             leading: leadingIcon,
                             minLeadingWidth: 20.w,
                             title: Padding(
@@ -90,16 +85,12 @@ class ChaptersList extends StatelessWidget {
                                     : 0,
                               ),
                               child: Text(
-                                chapters[i].chapter,
+                                chapters[i].title,
                                 textDirection: RTLHelper.getTextDirection(
-                                  chapters[i].chapter,
+                                  chapters[i].title,
                                 ),
                                 style: TextStyle(
-                                  color:
-                                      bookProgress
-                                              .getBookProgress(bookId)
-                                              .currentChapterIndex ==
-                                          i
+                                  color: currentIndex == i
                                       ? accentColor
                                       : fontColor,
                                   fontFamily: fontNames

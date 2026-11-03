@@ -62,7 +62,7 @@ class ShowEpub extends StatefulWidget {
     super.key,
     required this.epubBook,
     required this.accentColor,
-    this.starterChapter = 0,
+    this.starterChapter = -1,
     this.shouldOpenDrawer = false,
     required this.bookId,
     required this.chapterListTitle,
@@ -75,12 +75,25 @@ class ShowEpub extends StatefulWidget {
 }
 
 class ShowEpubState extends State<ShowEpub> {
-  String htmlContent = '';
   EpubContentParser? contentParser;
   bool showBrightnessWidget = false;
   final controller = ScrollController();
   Future<void> loadChapterFuture = Future.value();
-  List<LocalChapterModel> chaptersList = [];
+
+  /// Reading order and table of contents of the book.
+  List<SpineItem> spine = [];
+  List<TocEntry> toc = [];
+
+  /// Position the reader opens on. After that, the reader (PagingWidget)
+  /// owns the position; read it through [_location].
+  int _startSpine = 0;
+  int _startPage = 0;
+
+  /// Spine item [currentTextDirection] was detected for.
+  int _directionSpine = -1;
+
+  (int, int) get _location => controllerPaging.location();
+  int get _spineIndex => _location.$1;
   double _fontSizeProgress = 17.0;
   double _fontSize = 17.0;
   TextDirection currentTextDirection = TextDirection.ltr;
@@ -94,8 +107,28 @@ class ShowEpubState extends State<ShowEpub> {
   late String selectedTextStyle;
 
   bool showHeader = true;
-  bool showPrevious = false;
-  bool showNext = false;
+
+  /// Start of the previous / next chapter (spine index), or null.
+  int? get _prevChapterStart =>
+      toc
+          .map((e) => e.spineIndex)
+          .where((i) => i < _spineIndex)
+          .fold<int?>(null, (a, i) => a == null || i > a ? i : a) ??
+      // Pages before the first chapter (cover, notices, title page) go back
+      // to the start of the book.
+      (_spineIndex > 0 || _location.$2 > 0 ? 0 : null);
+  int? get _nextChapterStart => toc
+      .map((e) => e.spineIndex)
+      .where((i) => i > _spineIndex)
+      .fold<int?>(null, (a, i) => a == null || i < a ? i : a);
+
+  /// Page buttons: a page exists before / after the current one.
+  bool get showPrevious => controllerPaging.canGoPrevious();
+  bool get showNext => controllerPaging.canGoNext();
+
+  /// TOC entry the current page belongs to, or -1 before the first one.
+  int get currentTocIndex =>
+      toc.lastIndexWhere((e) => e.spineIndex <= _spineIndex);
 
   GetStorage gs = GetStorage();
 
@@ -132,91 +165,55 @@ class ShowEpubState extends State<ShowEpub> {
     }
   }
 
-  Future<void> reLoadChapter({bool init = false, int index = -1}) async {
-    int currentIndex =
-        bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-
+  Future<void> reLoadChapter({bool init = false}) async {
     setState(() {
-      loadChapterFuture = loadChapter(
-        index: init
-            ? -1
-            : index == -1
-            ? currentIndex
-            : index,
-      );
+      loadChapterFuture = loadChapter();
     });
   }
 
-  Future<void> loadChapter({int index = -1}) async {
-    debugPrint('[SHOW_EPUB] loadChapter() called with index=$index');
-    // Build content parser once — it extracts chapters and images
+  Future<void> loadChapter() async {
+    // Build content parser once — it extracts the book and its images
     contentParser ??= EpubContentParser(epubBook);
-    chaptersList = contentParser!.flatChapters;
-    debugPrint('[SHOW_EPUB] Found ${chaptersList.length} chapters');
-    for (var i = 0; i < chaptersList.length; i++) {
-      debugPrint('[SHOW_EPUB] Chapter $i: ${chaptersList[i].chapter}, htmlLength=${chaptersList[i].htmlContent.length}');
-    }
+    spine = contentParser!.spine;
+    toc = contentParser!.toc;
 
-    if (widget.starterChapter >= 0 &&
-        widget.starterChapter < chaptersList.length) {
-      setupNavButtons();
-      debugPrint('[SHOW_EPUB] Using starterChapter=${widget.starterChapter}');
-      await updateContentAccordingChapter(
-        index == -1 ? widget.starterChapter : index,
-      );
+    final progress = bookProgress.getBookProgress(bookId);
+    if (widget.starterChapter >= 0 && widget.starterChapter < toc.length) {
+      _startSpine = toc[widget.starterChapter].spineIndex;
+      _startPage = 0;
     } else {
-      setupNavButtons();
-      debugPrint('[SHOW_EPUB] Using default chapter 0');
-      await updateContentAccordingChapter(0);
-      CustomToast.showToast(
-        "Invalid chapter number. Range [0-${chaptersList.length}]",
+      if (widget.starterChapter >= toc.length) {
+        CustomToast.showToast(
+          "Invalid chapter number. Range [0-${toc.length}]",
+        );
+      }
+      // Resume where the reader left off.
+      _startSpine = (progress.currentChapterIndex ?? 0).clamp(
+        0,
+        spine.isEmpty ? 0 : spine.length - 1,
       );
+      _startPage = progress.currentPageIndex ?? 0;
     }
+    _updateTextDirection(_startSpine);
   }
 
-  Future<void> updateContentAccordingChapter(int chapterIndex) async {
-    debugPrint('[SHOW_EPUB] updateContentAccordingChapter($chapterIndex)');
-    await bookProgress.setCurrentChapterIndex(bookId, chapterIndex);
-
-    if (chapterIndex >= 0 && chapterIndex < chaptersList.length) {
-      htmlContent = chaptersList[chapterIndex].htmlContent;
-      debugPrint('[SHOW_EPUB] Chapter HTML length: ${htmlContent.length}');
-      debugPrint('[SHOW_EPUB] Chapter HTML preview: ${htmlContent.substring(0, htmlContent.length > 200 ? 200 : htmlContent.length)}...');
-    }
-
-    // Extract plain text for direction detection
-    final textContent =
-        html_parser.parse(htmlContent).documentElement?.text ?? '';
-    currentTextDirection = RTLHelper.getTextDirection(textContent);
-    debugPrint('[SHOW_EPUB] Detected text direction: $currentTextDirection');
-
-    // Force a rebuild by clearing and resetting page state
-    // This will show a spinner briefly during chapter transition
-    // and ensure the PagingWidget re-paginates with the new content
-    if (mounted) {
-      // Trigger a rebuild by updating state
-      // The PagingWidget will detect htmlContent change and re-paginate
-      updateUI();
-    }
-    
-    setupNavButtons();
+  void _updateTextDirection(int spineIndex) {
+    if (spine.isEmpty || spineIndex == _directionSpine) return;
+    _directionSpine = spineIndex;
+    final text =
+        html_parser
+            .parse(spine[spineIndex].htmlContent)
+            .documentElement
+            ?.text ??
+        '';
+    currentTextDirection = RTLHelper.getTextDirection(text);
   }
 
-  void setupNavButtons() {
-    int index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-
-    setState(() {
-      if (index == 0) {
-        showPrevious = false;
-      } else {
-        showPrevious = true;
-      }
-      if (index == chaptersList.length - 1) {
-        showNext = false;
-      } else {
-        showNext = true;
-      }
-    });
+  void _onLocationChanged(int spineIndex, int pageInSpine) {
+    _updateTextDirection(spineIndex);
+    bookProgress.setCurrentChapterIndex(bookId, spineIndex);
+    bookProgress.setCurrentPageIndex(bookId, pageInSpine);
+    updateUI();
   }
 
   Future<bool> backPress() async {
@@ -492,34 +489,25 @@ class ShowEpubState extends State<ShowEpub> {
     setState(() {});
   }
 
-  /// Guards against the boundary callbacks firing repeatedly while a chapter
-  /// change is still in flight (each flip at the boundary used to start one).
-  bool _chapterChangeInProgress = false;
+  /// Turns one page forward, across chapter boundaries.
+  void nextPage() => controllerPaging.nextPage();
 
+  /// Turns one page back, across chapter boundaries.
+  void previousPage() => controllerPaging.previousPage();
+
+  /// Turns to the first page of the book.
+  void goToBeginning() => controllerPaging.goToSpineItem(0);
+
+  /// Turns to the first page of the next chapter.
   Future<void> nextChapter() async {
-    final index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-    if (index < chaptersList.length - 1 && !_chapterChangeInProgress) {
-      _chapterChangeInProgress = true;
-      try {
-        await bookProgress.setCurrentPageIndex(bookId, 0);
-        await updateContentAccordingChapter(index + 1);
-      } finally {
-        _chapterChangeInProgress = false;
-      }
-    }
+    final target = _nextChapterStart;
+    if (target != null) controllerPaging.goToSpineItem(target);
   }
 
+  /// Turns to the first page of the previous chapter.
   Future<void> prevChapter() async {
-    final index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-    if (index > 0 && !_chapterChangeInProgress) {
-      _chapterChangeInProgress = true;
-      try {
-        await bookProgress.setCurrentPageIndex(bookId, 0);
-        await updateContentAccordingChapter(index - 1);
-      } finally {
-        _chapterChangeInProgress = false;
-      }
-    }
+    final target = _prevChapterStart;
+    if (target != null) controllerPaging.goToSpineItem(target);
   }
 
   @override
@@ -569,26 +557,15 @@ class ShowEpubState extends State<ShowEpub> {
                                       widget.shouldOpenDrawer = false;
                                     }
 
-                                    var currentChapterIndex =
-                                        bookProgress
-                                            .getBookProgress(bookId)
-                                            .currentChapterIndex ??
-                                        0;
-
                                     return PagingWidget(
-                                      htmlContent: htmlContent,
+                                      spine: spine,
                                       contentParser: contentParser,
                                       bookId: bookId,
-                                      chapterIndex: currentChapterIndex,
+                                      startSpineIndex: _startSpine,
+                                      startPageInSpine: _startPage,
                                       rawFontFamily: selectedTextStyle,
                                       accentColor: widget.accentColor,
                                       backgroundColor: backColor,
-                                      lastWidget: null,
-                                      starterPageIndex:
-                                          bookProgress
-                                              .getBookProgress(bookId)
-                                              .currentPageIndex ??
-                                          0,
                                       style: TextStyle(
                                         fontSize: _fontSize.sp,
                                         fontFamily: selectedTextStyle,
@@ -599,11 +576,7 @@ class ShowEpubState extends State<ShowEpub> {
                                         controllerPaging = ctrl;
                                       },
                                       onTextTap: () {
-                                        if (showHeader) {
-                                          showHeader = false;
-                                        } else {
-                                          showHeader = true;
-                                        }
+                                        showHeader = !showHeader;
                                         updateUI();
                                       },
                                       onPageFlip: (currentPage, totalPages) {
@@ -611,27 +584,11 @@ class ShowEpubState extends State<ShowEpub> {
                                           currentPage,
                                           totalPages,
                                         );
-
-                                        bookProgress.setCurrentPageIndex(
-                                          bookId,
-                                          currentPage == totalPages - 1
-                                              ? 0
-                                              : currentPage,
-                                        );
-
-                                        updateUI();
                                       },
-                                      onLastPage: (index, totalPages) async {
+                                      onLocationChanged: _onLocationChanged,
+                                      onLastPage: (index, totalPages) {
                                         widget.onLastPage?.call(index);
-                                        nextChapter();
                                       },
-                                      onFirstPageBack: (index, totalPages) {
-                                        prevChapter();
-                                      },
-                                      chapterTitle:
-                                          chaptersList[currentChapterIndex]
-                                              .chapter,
-                                      totalChapters: chaptersList.length,
                                     );
                                   }
                               }
@@ -737,25 +694,9 @@ class ShowEpubState extends State<ShowEpub> {
                                     : showPrevious,
                                 child: IconButton(
                                   onPressed: () {
-                                    debugPrint('[SHOW_EPUB] Left button clicked, RTL=$currentTextDirection');
-                                    final rtl =
-                                        currentTextDirection ==
-                                        TextDirection.rtl;
-                                    if (rtl) {
-                                      // RTL: left button goes to next page/chapter
-                                      debugPrint('[SHOW_EPUB] RTL mode: calling nextPage()');
-                                      if (!controllerPaging.nextPage()) {
-                                        debugPrint('[SHOW_EPUB] At last page, moving to next chapter');
-                                        nextChapter();
-                                      }
-                                    } else {
-                                      // LTR: left button goes to previous page/chapter
-                                      debugPrint('[SHOW_EPUB] LTR mode: calling previousPage()');
-                                      if (!controllerPaging.previousPage()) {
-                                        debugPrint('[SHOW_EPUB] At first page, moving to previous chapter');
-                                        prevChapter();
-                                      }
-                                    }
+                                    currentTextDirection == TextDirection.rtl
+                                        ? nextPage()
+                                        : previousPage();
                                   },
                                   icon: Icon(
                                     currentTextDirection == TextDirection.rtl
@@ -770,13 +711,9 @@ class ShowEpubState extends State<ShowEpub> {
                               Expanded(
                                 flex: 10,
                                 child: Text(
-                                  chaptersList.isNotEmpty
-                                      ? chaptersList[bookProgress
-                                                    .getBookProgress(bookId)
-                                                    .currentChapterIndex ??
-                                                0]
-                                            .chapter
-                                      : 'Loading...',
+                                  currentTocIndex >= 0
+                                      ? toc[currentTocIndex].title
+                                      : bookTitle,
                                   maxLines: 1,
                                   textAlign: TextAlign.center,
                                   textDirection: currentTextDirection,
@@ -798,25 +735,9 @@ class ShowEpubState extends State<ShowEpub> {
                                     : showNext,
                                 child: IconButton(
                                   onPressed: () {
-                                    debugPrint('[SHOW_EPUB] Right button clicked, RTL=$currentTextDirection');
-                                    final rtl =
-                                        currentTextDirection ==
-                                        TextDirection.rtl;
-                                    if (rtl) {
-                                      // RTL: right button goes to previous page/chapter
-                                      debugPrint('[SHOW_EPUB] RTL mode: calling previousPage()');
-                                      if (!controllerPaging.previousPage()) {
-                                        debugPrint('[SHOW_EPUB] At first page, moving to previous chapter');
-                                        prevChapter();
-                                      }
-                                    } else {
-                                      // LTR: right button goes to next page/chapter
-                                      debugPrint('[SHOW_EPUB] LTR mode: calling nextPage()');
-                                      if (!controllerPaging.nextPage()) {
-                                        debugPrint('[SHOW_EPUB] At last page, moving to next chapter');
-                                        nextChapter();
-                                      }
-                                    }
+                                    currentTextDirection == TextDirection.rtl
+                                        ? previousPage()
+                                        : nextPage();
                                   },
                                   icon: Icon(
                                     currentTextDirection == TextDirection.rtl
@@ -916,24 +837,17 @@ class ShowEpubState extends State<ShowEpub> {
   }
 
   Future<void> openTableOfContents() async {
-    bool? shouldUpdate =
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => ChaptersList(
-              bookId: bookId,
-              chapters: chaptersList,
-              leadingIcon: null,
-              accentColor: widget.accentColor,
-              chapterListTitle: widget.chapterListTitle,
-            ),
-          ),
-        ) ??
-        false;
-    if (shouldUpdate) {
-      var index = bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0;
-
-      await bookProgress.setCurrentPageIndex(bookId, 0);
-      reLoadChapter(index: index);
-    }
+    final int? index = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChaptersList(
+          chapters: toc,
+          currentIndex: currentTocIndex,
+          leadingIcon: null,
+          accentColor: widget.accentColor,
+          chapterListTitle: widget.chapterListTitle,
+        ),
+      ),
+    );
+    if (index != null) controllerPaging.goToSpineItem(toc[index].spineIndex);
   }
 }

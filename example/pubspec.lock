@@ -584,10 +584,10 @@ packages:
     dependency: transitive
     description:
       name: turnable_page_plus
-      sha256: d5ec28857ff8c91e20b085597ac84534b1037a44b1cbfb8bf550e622553d4fe6
+      sha256: fecd087e4e8fcdc439536deee0a213fccbe6a1df36786f3d2bb457c40b723088
       url: "https://pub.dev"
     source: hosted
-    version: "1.0.0"
+    version: "1.0.4"
   typed_data:
     dependency: transitive
     description:

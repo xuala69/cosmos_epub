@@ -234,18 +234,12 @@ class CosmosEpub {
   }) async {
     _checkInitialization();
 
-    if (starterChapter != -1) {
-      await bookProgress.setCurrentChapterIndex(bookId, starterChapter);
-      await bookProgress.setCurrentPageIndex(bookId, 0);
-    }
-
     var route = MaterialPageRoute(
       builder: (context) {
         return ShowEpub(
           epubBook: epubBook,
-          starterChapter: starterChapter >= 0
-              ? starterChapter
-              : bookProgress.getBookProgress(bookId).currentChapterIndex ?? 0,
+          // A table-of-contents entry, or -1 to resume the saved position.
+          starterChapter: starterChapter,
           shouldOpenDrawer: shouldOpenDrawer,
           bookId: bookId,
           accentColor: accentColor,

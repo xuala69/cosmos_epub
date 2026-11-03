@@ -1,4 +1,5 @@
 import 'package:cosmos_epub/Helpers/pagination.dart';
+import 'package:cosmos_epub/Model/chapter_model.dart';
 import 'package:cosmos_epub/Helpers/progress_singleton.dart';
 import 'package:cosmos_epub/Model/book_progress_model.dart';
 import 'package:cosmos_epub/show_epub.dart' as se;
@@ -35,16 +36,16 @@ String _html() => List.generate(
   (i) => '<p>Paragraph number $i with some text to fill the page.</p>',
 ).join();
 
+// One list for the whole test: a new list means a new book.
+final _book = [SpineItem(href: 'a.xhtml', htmlContent: _html())];
+
 Widget _host() => MaterialApp(
   home: Scaffold(
     body: ScreenUtilInit(
       designSize: const Size(375, 812),
       builder: (_, _) => PagingWidget(
-        htmlContent: _html(),
+        spine: _book,
         bookId: 'test',
-        chapterTitle: 'Chapter',
-        chapterIndex: 0,
-        totalChapters: 1,
         style: const TextStyle(fontSize: 17),
         handlerCallback: (_) {},
         onTextTap: () {},

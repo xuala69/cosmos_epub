@@ -5,208 +5,201 @@ import 'package:flutter/foundation.dart';
 
 import '../Model/chapter_model.dart';
 
-/// Parses an EpubBook into a flat chapter list with infinite nesting support
-/// and extracts all images for rendering.
+/// Parses an EpubBook into its reading order and table of contents, and
+/// extracts all images for rendering.
 ///
-/// Uses multiple strategies to build the chapter list:
+/// Like other EPUB readers, the text is read in **spine** order (every linear
+/// document, cover and title pages included) and the table of contents only
+/// points into it. The TOC comes from:
 /// 1. NCX NavMap with recursive ChildNavigationPoints (handles nested TOCs)
-/// 2. Falls back to epubx Chapters if NavMap is empty
-/// 3. Falls back to spine order if both fail
+/// 2. epubx Chapters if NavMap is empty
+/// 3. one entry per spine item if both fail
 class EpubContentParser {
   final EpubBook epubBook;
-  late final List<LocalChapterModel> flatChapters;
+  late final List<SpineItem> spine;
+  late final List<TocEntry> toc;
   late final Map<String, Uint8List> imageMap;
 
   EpubContentParser(this.epubBook) {
     debugPrint('[EPUB_PARSER] Parsing EPUB book: ${epubBook.Title}');
-    flatChapters = _buildChapterList();
-    debugPrint('[EPUB_PARSER] Built ${flatChapters.length} flat chapters');
+    spine = _buildSpine();
+    toc = _buildToc();
+    debugPrint(
+      '[EPUB_PARSER] Built ${spine.length} spine items, ${toc.length} TOC entries',
+    );
     imageMap = _extractImages();
     debugPrint('[EPUB_PARSER] Extracted ${imageMap.length} images');
   }
 
-  List<LocalChapterModel> _buildChapterList() {
-    debugPrint('[EPUB_PARSER] Building chapter list');
-    // Strategy 1: Build from NCX NavMap (supports nested navPoints)
+  static String _fileName(String href) =>
+      href.split('#').first.split('/').last;
+
+  List<SpineItem> _buildSpine() {
+    final list = <SpineItem>[];
+    final package = epubBook.Schema?.Package;
+    final manifest = package?.Manifest?.Items ?? const <EpubManifestItem>[];
+    final spineItems = package?.Spine?.Items;
+
+    if (spineItems != null && spineItems.isNotEmpty) {
+      for (final spineItem in spineItems) {
+        // Non-linear documents are only reachable through links.
+        if (spineItem.IsLinear == false) continue;
+        final item = manifest.where((m) => m.Id == spineItem.IdRef).firstOrNull;
+        final href = item?.Href ?? '';
+        if (href.isEmpty) continue;
+        // The EPUB 3 navigation document is the TOC, not part of the text.
+        if (item?.Properties?.contains('nav') == true ||
+            RegExp(r'^(nav|toc)\.x?html?$').hasMatch(_fileName(href))) {
+          continue;
+        }
+        final content = _resolveContentBySource(href);
+        if (content.isEmpty) continue;
+        list.add(SpineItem(href: href, htmlContent: content));
+      }
+    } else {
+      // No spine — keep the documents in archive order.
+      for (final entry in (epubBook.Content?.Html ?? {}).entries) {
+        if (entry.key.contains('nav')) continue;
+        list.add(
+          SpineItem(href: entry.key, htmlContent: entry.value.Content ?? ''),
+        );
+      }
+    }
+
+    final cover = _coverImageHref(manifest);
+    if (cover != null &&
+        !list.any((s) => s.htmlContent.contains(_fileName(cover)))) {
+      // A cover declared only as an image: show it as the first page, as
+      // other readers do.
+      list.insert(
+        0,
+        SpineItem(href: cover, htmlContent: '<img src="$cover" alt="cover"/>'),
+      );
+    }
+    return list;
+  }
+
+  /// The cover image declared in the OPF (EPUB 3 `cover-image` property, or
+  /// EPUB 2 `<meta name="cover">`).
+  String? _coverImageHref(List<EpubManifestItem> manifest) {
+    final byProperty = manifest
+        .where((m) => m.Properties?.contains('cover-image') == true)
+        .firstOrNull;
+    if (byProperty?.Href != null) return byProperty!.Href;
+    final id = epubBook.Schema?.Package?.Metadata?.MetaItems
+        ?.where((m) => m.Name == 'cover')
+        .firstOrNull
+        ?.Content;
+    if (id == null) return null;
+    final item = manifest.where((m) => m.Id == id).firstOrNull;
+    if (item?.MediaType?.startsWith('image/') != true) return null;
+    return item!.Href;
+  }
+
+  /// Spine position of the document [source] points to, or -1.
+  int _spineIndexOf(String source) {
+    final file = _fileName(source);
+    if (file.isEmpty) return -1;
+    return spine.indexWhere((s) => _fileName(s.href) == file);
+  }
+
+  List<TocEntry> _buildToc() {
+    // Strategy 1: NCX NavMap (supports nested navPoints)
     final navPoints = epubBook.Schema?.Navigation?.NavMap?.Points;
     if (navPoints != null && navPoints.isNotEmpty) {
-      debugPrint(
-        '[EPUB_PARSER] Using Strategy 1: NCX NavMap with ${navPoints.length} navPoints',
-      );
-      final list = <LocalChapterModel>[];
+      final list = <TocEntry>[];
       _flattenNavPoints(navPoints, list, 0);
-      if (list.isNotEmpty) {
-        debugPrint('[EPUB_PARSER] Strategy 1 yielded ${list.length} chapters');
-        return list;
-      }
+      if (list.isNotEmpty) return list;
     }
 
-    // Strategy 2: Use epubx Chapters (works for simple flat TOCs)
+    // Strategy 2: epubx Chapters (works for simple flat TOCs)
     if (epubBook.Chapters != null && epubBook.Chapters!.isNotEmpty) {
-      debugPrint(
-        '[EPUB_PARSER] Using Strategy 2: epubx Chapters with ${epubBook.Chapters!.length} chapters',
-      );
-      final list = <LocalChapterModel>[];
+      final list = <TocEntry>[];
       _flattenEpubChapters(epubBook.Chapters!, list, 0);
-      if (list.isNotEmpty) {
-        debugPrint('[EPUB_PARSER] Strategy 2 yielded ${list.length} chapters');
-        return list;
-      }
+      if (list.isNotEmpty) return list;
     }
 
-    // Strategy 3: Fall back to spine order (catches EPUBs with no/broken TOC)
-    debugPrint('[EPUB_PARSER] Using Strategy 3: spine order');
-    return _buildFromSpine();
+    // Strategy 3: one entry per spine item
+    return [
+      for (var i = 0; i < spine.length; i++)
+        TocEntry(title: 'Chapter ${i + 1}', spineIndex: i),
+    ];
   }
 
   /// Recursively flatten NCX navigation points — handles infinite nesting.
+  ///
+  /// A section wrapper without content of its own points at its first child.
+  /// Entries whose document is not in the reading order are dropped.
   void _flattenNavPoints(
     List<EpubNavigationPoint> points,
-    List<LocalChapterModel> list,
+    List<TocEntry> list,
     int depth,
   ) {
     for (final point in points) {
       final title = point.NavigationLabels?.isNotEmpty == true
           ? point.NavigationLabels!.first.Text ?? '...'
           : '...';
-      final source = point.Content?.Source ?? '';
-      final htmlContent = _resolveContentBySource(source);
+      final at = list.length;
+      final children = point.ChildNavigationPoints ?? const [];
+      _flattenNavPoints(children, list, depth + 1);
 
-      if (source.isEmpty && htmlContent.isEmpty) {
-        // Section wrapper with no content — generate a centered title page
-        list.add(
-          LocalChapterModel(
-            chapter: title,
-            htmlContent: '',
-            isSectionTitle: true,
-            depth: depth,
-          ),
-        );
-      } else {
-        list.add(
-          LocalChapterModel(
-            chapter: title,
-            htmlContent: htmlContent,
-            depth: depth,
-          ),
+      var index = _spineIndexOf(point.Content?.Source ?? '');
+      if (index < 0 && list.length > at) index = list[at].spineIndex;
+      if (index >= 0) {
+        list.insert(
+          at,
+          TocEntry(title: title, spineIndex: index, depth: depth),
         );
       }
-
-      // Recurse into children (infinite nesting)
-      if (point.ChildNavigationPoints != null &&
-          point.ChildNavigationPoints!.isNotEmpty) {
-        _flattenNavPoints(point.ChildNavigationPoints!, list, depth + 1);
-      }
     }
-  }
-
-  /// Resolve a TOC source path to actual HTML content from the EPUB.
-  String _resolveContentBySource(String source) {
-    debugPrint('[EPUB_PARSER] Resolving content for source: $source');
-    if (source.isEmpty) return '';
-
-    // Strip fragment (#anchor)
-    final cleanSource = source.split('#').first;
-
-    final htmlFiles = epubBook.Content?.Html;
-    if (htmlFiles == null) {
-      debugPrint('[EPUB_PARSER] No HTML files found in EPUB');
-      return '';
-    }
-
-    // Try exact match
-    if (htmlFiles.containsKey(cleanSource)) {
-      final content = htmlFiles[cleanSource]?.Content ?? '';
-      debugPrint(
-        '[EPUB_PARSER] Found exact match, content length: ${content.length}',
-      );
-      return content;
-    }
-
-    // Try matching by filename
-    final filename = cleanSource.split('/').last;
-    for (final entry in htmlFiles.entries) {
-      if (entry.key.endsWith(filename)) {
-        final content = entry.value.Content ?? '';
-        debugPrint(
-          '[EPUB_PARSER] Found match by filename, content length: ${content.length}',
-        );
-        return content;
-      }
-    }
-
-    debugPrint('[EPUB_PARSER] No content found for source: $source');
-    return '';
   }
 
   /// Flatten epubx EpubChapter objects (fallback).
   void _flattenEpubChapters(
     List<EpubChapter> chapters,
-    List<LocalChapterModel> list,
+    List<TocEntry> list,
     int depth,
   ) {
     for (final chapter in chapters) {
-      list.add(
-        LocalChapterModel(
-          chapter: chapter.Title ?? '...',
-          htmlContent: chapter.HtmlContent ?? '',
-          depth: depth,
-        ),
-      );
+      final index = _spineIndexOf(chapter.ContentFileName ?? '');
+      if (index >= 0) {
+        list.add(
+          TocEntry(
+            title: chapter.Title ?? '...',
+            spineIndex: index,
+            depth: depth,
+          ),
+        );
+      }
       if (chapter.SubChapters != null && chapter.SubChapters!.isNotEmpty) {
         _flattenEpubChapters(chapter.SubChapters!, list, depth + 1);
       }
     }
   }
 
-  /// Build chapter list from spine order (last resort).
-  List<LocalChapterModel> _buildFromSpine() {
-    final list = <LocalChapterModel>[];
+  /// Resolve a manifest/TOC path to actual HTML content from the EPUB.
+  String _resolveContentBySource(String source) {
+    if (source.isEmpty) return '';
+
+    // Strip fragment (#anchor)
+    final cleanSource = source.split('#').first;
+
     final htmlFiles = epubBook.Content?.Html;
-    if (htmlFiles == null) return list;
+    if (htmlFiles == null) return '';
 
-    // Use spine order
-    final spineItems = epubBook.Schema?.Package?.Spine?.Items;
-    final manifest = epubBook.Schema?.Package?.Manifest?.Items;
-
-    if (spineItems != null && manifest != null) {
-      for (final spineItem in spineItems) {
-        final manifestItem = manifest
-            .where((m) => m.Id == spineItem.IdRef)
-            .firstOrNull;
-        if (manifestItem == null) continue;
-        final href = manifestItem.Href ?? '';
-        if (href.isEmpty) continue;
-
-        final content = _resolveContentBySource(href);
-        if (content.isEmpty) continue;
-
-        // Skip nav pages
-        if (href.contains('nav')) continue;
-
-        list.add(
-          LocalChapterModel(
-            chapter: 'Chapter ${list.length + 1}',
-            htmlContent: content,
-            depth: 0,
-          ),
-        );
-      }
-    } else {
-      // No spine — just dump all HTML files
-      for (final entry in htmlFiles.entries) {
-        if (entry.key.contains('nav')) continue;
-        list.add(
-          LocalChapterModel(
-            chapter: entry.key.split('/').last.replaceAll('.xhtml', ''),
-            htmlContent: entry.value.Content ?? '',
-            depth: 0,
-          ),
-        );
-      }
+    // Try exact match
+    if (htmlFiles.containsKey(cleanSource)) {
+      return htmlFiles[cleanSource]?.Content ?? '';
     }
 
-    return list;
+    // Try matching by filename
+    final filename = cleanSource.split('/').last;
+    for (final entry in htmlFiles.entries) {
+      if (entry.key.endsWith(filename)) return entry.value.Content ?? '';
+    }
+
+    debugPrint('[EPUB_PARSER] No content found for source: $source');
+    return '';
   }
 
   Map<String, Uint8List> _extractImages() {

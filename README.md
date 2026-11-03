@@ -88,8 +88,8 @@ EPUB File (any source)
 EpubReader.readBook() → EpubBook Object
     ↓
 EpubContentParser (Helpers/epub_content_parser.dart)
-    ├─→ Extracts HTML content from chapters
-    ├─→ Builds flat chapter list with infinite nesting
+    ├─→ Reads the documents in spine (reading) order
+    ├─→ Builds the table of contents with infinite nesting
     ├─→ Extracts images and converts to base64
     ↓
 HtmlPaginator (Helpers/html_paginator.dart)
@@ -167,7 +167,7 @@ Main entry point providing the public API:
 Main reader widget (`ShowEpub`) that:
 - Loads and displays EPUB content
 - Manages theme, font, and brightness settings
-- Handles chapter navigation
+- Handles table-of-contents and chapter navigation
 - Coordinates with PagingWidget for page rendering
 - Provides app bar with menu, font settings, and brightness control
 
@@ -180,6 +180,10 @@ Handles page creation and management:
 - `_TapDetector` - Detects taps without interfering with flip gestures
 
 Key features:
+- The whole book is one run of pages: every turn folds, including the cover,
+  title page and chapter boundaries
+- The current spine item is paginated first; the rest is added in the
+  background, one item per frame
 - Dynamic pagination based on screen size
 - Automatic re-pagination on font size or orientation change
 - Position tracking across page regeneration
@@ -188,10 +192,12 @@ Key features:
 #### 4. **EPUB Parsing Module** (`Helpers/epub_content_parser.dart`)
 Responsible for EPUB content extraction:
 - `EpubContentParser` - Main parser class
-- **Three-tier chapter resolution**:
+- **Reading order** = the OPF spine (linear documents only), like other EPUB
+  readers; a cover declared only as an image becomes the first page
+- **Table of contents** points into the spine:
   1. NCX NavMap with recursive ChildNavigationPoints (handles nested TOCs)
   2. Falls back to epubx Chapters
-  3. Falls back to spine order
+  3. Falls back to one entry per spine item
 - Image extraction and base64 conversion
 - Image resolution in HTML content
 
@@ -252,11 +258,12 @@ Special feature: **Uzbek digraph support**
 #### 9. **Model Module**
 - `BookProgressModel` (`Model/book_progress_model.dart`):
   - Isar collection model
-  - Fields: localId (auto-increment), bookId, currentChapterIndex, currentPageIndex
+  - Fields: localId (auto-increment), bookId, currentChapterIndex (spine
+    item), currentPageIndex (page within that spine item)
 
-- `LocalChapterModel` (`Model/chapter_model.dart`):
-  - Represents a chapter in the TOC
-  - Fields: chapter (title), depth, htmlContent, isSectionTitle
+- `SpineItem` / `TocEntry` (`Model/chapter_model.dart`):
+  - `SpineItem`: one document of the reading order (href, htmlContent)
+  - `TocEntry`: one table-of-contents entry (title, depth, spineIndex)
 
 - `HighlightModel` (`Model/highlight_model.dart`):
   - Represents a text highlight
@@ -550,7 +557,7 @@ ElevatedButton(
         print('Page $currentPage of $totalPages');
       },
       onLastPage: (lastPageIndex) {
-        print('Reached last page of chapter');
+        print('Reached the end of the book');
       },
     );
   },
@@ -652,11 +659,14 @@ Open an EPUB from Flutter assets.
 - `context`: BuildContext for navigation
 - `bookId`: Unique identifier for this book (used for progress tracking)
 - `accentColor`: Primary accent color for the reader
-- `onPageFlip`: Callback when user flips a page (currentPage, totalPages)
-- `onLastPage`: Callback when user reaches the last page of a chapter
+- `onPageFlip`: Callback when user flips a page (currentPage, totalPages).
+  Both are book-wide; `totalPages` grows while the rest of the book is
+  paginated in the background
+- `onLastPage`: Callback when the reader tries to turn past the last page of
+  the book
 - `chapterListTitle`: Title for the Table of Contents screen
 - `shouldOpenDrawer`: Whether to automatically open the TOC on start
-- `starterChapter`: Chapter index to start at (-1 for last read position)
+- `starterChapter`: Table-of-contents entry to start at (-1 for last read position)
 
 ```dart
 static Future<void> openLocalBook({
@@ -710,7 +720,8 @@ static BookProgressModel getBookProgress(String bookId)
 ```
 Get the reading progress for a book.
 
-**Returns**: `BookProgressModel` with currentChapterIndex and currentPageIndex
+**Returns**: `BookProgressModel` with currentChapterIndex (spine item) and
+currentPageIndex (page within it)
 
 ```dart
 static Future<bool> setCurrentPageIndex(String bookId, int index) async
@@ -722,7 +733,7 @@ Set the current page index for a book.
 ```dart
 static Future<bool> setCurrentChapterIndex(String bookId, int index) async
 ```
-Set the current chapter index for a book.
+Set the current spine item (reading-order document) for a book.
 
 **Returns**: `true` on success
 
