@@ -528,9 +528,11 @@ class ShowEpubState extends State<ShowEpub> {
           body: SafeArea(
             child: Stack(
               children: [
-                Column(
+                // The bars are drawn over the reader, so showing or hiding
+                // them never resizes the pages (PagingWidget leaves room).
+                Stack(
                   children: [
-                    Expanded(
+                    Positioned.fill(
                       child: Stack(
                         children: [
                           FutureBuilder<void>(
@@ -665,91 +667,94 @@ class ShowEpubState extends State<ShowEpub> {
                         ],
                       ),
                     ),
-                    AnimatedContainer(
-                      height: showHeader ? 40.h : 0,
-                      duration: const Duration(milliseconds: 100),
-                      color: backColor,
-                      child: Container(
-                        height: 40.h,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: backColor,
-                          border: Border(
-                            top: BorderSide(
-                              width: 3.w,
-                              color: widget.accentColor,
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: AnimatedContainer(
+                        height: showHeader ? 40.h : 0,
+                        duration: const Duration(milliseconds: 100),
+                        color: backColor,
+                        child: Container(
+                          height: 40.h,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: backColor,
+                            border: Border(
+                              top: BorderSide(
+                                width: 3.w,
+                                color: widget.accentColor,
+                              ),
                             ),
                           ),
-                        ),
-                        child: Directionality(
-                          textDirection: currentTextDirection,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              SizedBox(width: 5.w),
-                              Visibility(
-                                visible:
-                                    currentTextDirection == TextDirection.rtl
-                                    ? showNext
-                                    : showPrevious,
-                                child: IconButton(
-                                  onPressed: () {
-                                    currentTextDirection == TextDirection.rtl
-                                        ? nextPage()
-                                        : previousPage();
-                                  },
-                                  icon: Icon(
-                                    currentTextDirection == TextDirection.rtl
-                                        ? Icons.arrow_forward_ios_rounded
-                                        : Icons.arrow_back_ios,
-                                    size: 15.h,
-                                    color: fontColor,
+                          child: Directionality(
+                            textDirection: currentTextDirection,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                SizedBox(width: 5.w),
+                                Visibility(
+                                  visible:
+                                      currentTextDirection == TextDirection.rtl
+                                      ? showNext
+                                      : showPrevious,
+                                  child: IconButton(
+                                    onPressed: () {
+                                      currentTextDirection == TextDirection.rtl
+                                          ? nextPage()
+                                          : previousPage();
+                                    },
+                                    icon: Icon(
+                                      currentTextDirection == TextDirection.rtl
+                                          ? Icons.arrow_forward_ios_rounded
+                                          : Icons.arrow_back_ios,
+                                      size: 15.h,
+                                      color: fontColor,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              SizedBox(width: 5.w),
-                              Expanded(
-                                flex: 10,
-                                child: Text(
-                                  currentTocIndex >= 0
-                                      ? toc[currentTocIndex].title
-                                      : bookTitle,
-                                  maxLines: 1,
-                                  textAlign: TextAlign.center,
-                                  textDirection: currentTextDirection,
-                                  style: TextStyle(
-                                    fontSize: 13.sp,
-                                    overflow: TextOverflow.ellipsis,
-                                    fontFamily: selectedTextStyle,
-                                    package: 'cosmos_epub',
-                                    fontWeight: FontWeight.bold,
-                                    color: fontColor,
+                                SizedBox(width: 5.w),
+                                Expanded(
+                                  flex: 10,
+                                  child: Text(
+                                    currentTocIndex >= 0
+                                        ? toc[currentTocIndex].title
+                                        : bookTitle,
+                                    maxLines: 1,
+                                    textAlign: TextAlign.center,
+                                    textDirection: currentTextDirection,
+                                    style: TextStyle(
+                                      fontSize: 13.sp,
+                                      overflow: TextOverflow.ellipsis,
+                                      fontFamily: selectedTextStyle,
+                                      package: 'cosmos_epub',
+                                      fontWeight: FontWeight.bold,
+                                      color: fontColor,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              SizedBox(width: 5.w),
-                              Visibility(
-                                visible:
-                                    currentTextDirection == TextDirection.rtl
-                                    ? showPrevious
-                                    : showNext,
-                                child: IconButton(
-                                  onPressed: () {
-                                    currentTextDirection == TextDirection.rtl
-                                        ? previousPage()
-                                        : nextPage();
-                                  },
-                                  icon: Icon(
-                                    currentTextDirection == TextDirection.rtl
-                                        ? Icons.arrow_back_ios
-                                        : Icons.arrow_forward_ios_rounded,
-                                    size: 15.h,
-                                    color: fontColor,
+                                SizedBox(width: 5.w),
+                                Visibility(
+                                  visible:
+                                      currentTextDirection == TextDirection.rtl
+                                      ? showPrevious
+                                      : showNext,
+                                  child: IconButton(
+                                    onPressed: () {
+                                      currentTextDirection == TextDirection.rtl
+                                          ? previousPage()
+                                          : nextPage();
+                                    },
+                                    icon: Icon(
+                                      currentTextDirection == TextDirection.rtl
+                                          ? Icons.arrow_back_ios
+                                          : Icons.arrow_forward_ios_rounded,
+                                      size: 15.h,
+                                      color: fontColor,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              SizedBox(width: 5.w),
-                            ],
+                                SizedBox(width: 5.w),
+                              ],
+                            ),
                           ),
                         ),
                       ),

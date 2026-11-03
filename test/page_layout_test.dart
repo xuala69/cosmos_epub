@@ -1,0 +1,167 @@
+import 'dart:io';
+
+import 'package:cosmos_epub/Helpers/html_paginator.dart';
+import 'package:cosmos_epub/Helpers/progress_singleton.dart';
+import 'package:cosmos_epub/Model/book_progress_model.dart';
+import 'package:cosmos_epub/show_epub.dart';
+import 'package:epubx/epubx.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:html/parser.dart' as html_parser;
+import 'package:turnable_page_plus/turnable_page_plus.dart';
+
+class _FakeProgress implements BookProgressSingleton {
+  _FakeProgress(this.chapter, this.page);
+  int chapter;
+  int page;
+
+  @override
+  Future<bool> setCurrentChapterIndex(
+    String bookId,
+    int chapterIndex, {
+    bool keepPage = false,
+  }) async {
+    chapter = chapterIndex;
+    return true;
+  }
+
+  @override
+  Future<bool> setCurrentPageIndex(String bookId, int pageIndex) async {
+    page = pageIndex;
+    return true;
+  }
+
+  @override
+  BookProgressModel getBookProgress(String bookId) =>
+      BookProgressModel(currentPageIndex: page, currentChapterIndex: chapter);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+String _plain(String html) => (html_parser.parse(html).body?.text ?? '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+void main() {
+  testWidgets('a paragraph taller than a page continues on the next page', (
+    tester,
+  ) async {
+    final words = List.generate(400, (i) => 'word$i').join(' ');
+    final html = '<p>Start <b>bold part</b> $words <i>end</i></p>';
+    final pages = HtmlPaginator(
+      pageWidth: 300,
+      pageHeight: 400,
+      fontSize: 20,
+    ).paginate(html);
+
+    expect(pages.length, greaterThan(2));
+    // Nothing lost or repeated: the pages read back as the paragraph.
+    expect(pages.map(_plain).join(' '), _plain(html));
+    // Every part is still a paragraph, with its inline markup intact.
+    for (final page in pages) {
+      expect(page, startsWith('<p>'));
+    }
+    expect(pages.first, contains('<b>bold part</b>'));
+    expect(pages.last, contains('<i>end</i>'));
+  });
+
+  testWidgets('hyphenated text split across pages loses nothing', (
+    tester,
+  ) async {
+    // Long words with soft hyphens, as the reader hyphenates them.
+    final words = List.generate(
+      300,
+      (i) => 'pa\u00ADra\u00ADgraph\u00ADword$i',
+    ).join(' ');
+    final html = '<p>$words</p>';
+    final pages = HtmlPaginator(
+      pageWidth: 300,
+      pageHeight: 400,
+      fontSize: 20,
+    ).paginate(html);
+    expect(pages.length, greaterThan(2));
+
+    String letters(String s) =>
+        _plain(s).replaceAll(RegExp('[\\s\u00AD-]'), '');
+    expect(pages.map(letters).join(), letters(html));
+  });
+
+  testWidgets('with huge text, page content stays inside the text area', (
+    tester,
+  ) async {
+    final original = FlutterError.onError;
+    FlutterError.onError = (d) {
+      if (d.exceptionAsString().contains('native peer has been collected')) {
+        return;
+      }
+      original?.call(d);
+    };
+    addTearDown(() => FlutterError.onError = original);
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    bookProgress = _FakeProgress(3, 5);
+
+    final book = (await tester.runAsync(
+      () async => EpubReader.readBook(
+        await File('example/assets/book.epub').readAsBytes(),
+      ),
+    ))!;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ScreenUtilInit(
+            designSize: const Size(375, 812),
+            builder: (_, _) => ShowEpub(
+              epubBook: book,
+              accentColor: Colors.blue,
+              bookId: 'test_book',
+              chapterListTitle: 'Contents',
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 300; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    // Each page: ClipRect (the text area) > OverflowBox > Column (the text).
+    final areas = find.descendant(
+      of: find.byType(TurnablePage),
+      matching: find.byType(ClipRect),
+    );
+    expect(areas, findsWidgets);
+    for (final area in areas.evaluate()) {
+      final clip = area.renderObject! as RenderBox;
+      final column = tester.renderObject<RenderBox>(
+        find
+            .descendant(
+              of: find.byWidget(area.widget),
+              matching: find.byType(Column),
+            )
+            .first,
+      );
+      expect(
+        column.size.height,
+        lessThanOrEqualTo(clip.size.height),
+        reason: 'text taller than its page is cut off',
+      );
+    }
+
+    // Showing / hiding the bars does not resize the reader.
+    final reader = find.byType(TurnablePage);
+    final size = tester.getSize(reader);
+    final state = tester.state<ShowEpubState>(find.byType(ShowEpub));
+    state.showHeader = false;
+    state.updateUI();
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(tester.getSize(reader), size);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 16));
+  });
+}

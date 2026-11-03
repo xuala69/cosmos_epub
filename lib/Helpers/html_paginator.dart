@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 
+import 'soft_hyphen_text.dart';
+
 /// Splits HTML content into page-sized chunks by block-level elements.
 ///
 /// Measures each block's actual height by building a TextSpan and laying it
@@ -88,23 +90,36 @@ class HtmlPaginator {
       debugPrint('[HTML_PAGINATOR] Total images found: $totalImages');
     }
 
-    for (final block in blocks) {
+    final pending = List.of(blocks);
+    while (pending.isNotEmpty) {
+      final block = pending.removeAt(0);
       final blockHeight = _measureBlockHeight(block);
       debugPrint('[HTML_PAGINATOR] Block tag=${block.tag}, height=$blockHeight, textLength=${block.text.length}');
 
       if (currentPageHeight + blockHeight <= pageHeight) {
         currentPageBlocks.add(block);
         currentPageHeight += blockHeight;
-        debugPrint('[HTML_PAGINATOR] Added to current page, total height: $currentPageHeight');
+        continue;
+      }
+
+      // A paragraph that does not fit continues on the next page, split at a
+      // line break. Clipping it lost the text below the page edge.
+      final split = _splitBlock(block, pageHeight - currentPageHeight);
+      if (split != null) {
+        currentPageBlocks.add(split.$1);
+        pending.insert(0, split.$2);
       } else if (currentPageBlocks.isEmpty) {
+        // Nothing to split (an image, a table): it gets a page of its own.
         debugPrint('[HTML_PAGINATOR] Block too tall for page, creating new page');
         pages.add(block.html);
+        continue;
       } else {
-        debugPrint('[HTML_PAGINATOR] Page full (height: $currentPageHeight + $blockHeight > $pageHeight), starting new page');
-        pages.add(_serializePage(currentPageBlocks));
-        currentPageBlocks = [block];
-        currentPageHeight = blockHeight;
+        // Not even one line fits here: retry on an empty page.
+        pending.insert(0, block);
       }
+      pages.add(_serializePage(currentPageBlocks));
+      currentPageBlocks = [];
+      currentPageHeight = 0;
     }
 
     if (currentPageBlocks.isNotEmpty) {
@@ -162,7 +177,7 @@ class HtmlPaginator {
 
     // Measure with TextPainter at exact page width
     final painter = TextPainter(
-      text: TextSpan(children: spans),
+      text: _asRendered(spans),
       textDirection: textDirection,
       textAlign: TextAlign.justify,
       textScaler: textScaler,
@@ -174,6 +189,141 @@ class HtmlPaginator {
     // SelectableText.rich adds ~4px internal padding per paragraph.
     // Scale factor accounts for widget chrome that TextPainter doesn't measure.
     return (textHeight + _paddingForTag(tag)) * 1.03 + 2;
+  }
+
+  /// The paragraph exactly as SoftHyphenParagraph draws it: soft hyphens
+  /// resolved to "-" at line breaks, which can change the number of lines.
+  TextSpan _asRendered(List<InlineSpan> spans) =>
+      SoftHyphenParagraph.resolveSoftHyphens(
+        TextSpan(children: spans),
+        pageWidth,
+        textDirection: textDirection,
+        textScaler: textScaler,
+      );
+
+  /// Splits a text block so that its first part fits in [room] (the space
+  /// left on the page), at the start of a line. Null when the block has no
+  /// text to split, or when not even its first line fits.
+  (_HtmlBlock, _HtmlBlock)? _splitBlock(_HtmlBlock block, double room) {
+    final element = block.element;
+    if (element == null || _countImagesInBlock(block) > 0) return null;
+    if (const {'table', 'pre', 'img', 'hr', 'ul', 'ol'}.contains(block.tag)) {
+      return null;
+    }
+
+    final spans = <InlineSpan>[];
+    _buildSpans(element, spans, _styleForTag(block.tag));
+    if (spans.isEmpty) return null;
+    final source = TextSpan(children: spans).toPlainText();
+    final rendered = _asRendered(spans);
+    final painter = TextPainter(
+      text: rendered,
+      textDirection: textDirection,
+      textAlign: TextAlign.justify,
+      textScaler: textScaler,
+    )..layout(maxWidth: pageWidth);
+    try {
+      // The same margins _measureBlockHeight adds around the text.
+      final budget = (room - 2) / 1.03 - _paddingForTag(block.tag);
+      final lines = painter.computeLineMetrics();
+      var fit = 0;
+      var bottom = 0.0;
+      while (fit < lines.length && bottom + lines[fit].height <= budget) {
+        bottom += lines[fit].height;
+        fit++;
+      }
+      if (fit == 0 || fit >= lines.length) return null;
+      // First character of the first line that does not fit.
+      final position = painter.getPositionForOffset(
+        Offset(pageWidth / 2, bottom + lines[fit].height / 2),
+      );
+      final offset = _sourceOffset(
+        source,
+        rendered.toPlainText(),
+        painter.getLineBoundary(position).start,
+      );
+      if (offset <= 0) return null;
+
+      final first = element.clone(true);
+      final rest = element.clone(true);
+      _keepText(first, 0, 0, offset);
+      _keepText(rest, 0, offset, 1 << 30);
+      // A word hyphenated at the page break keeps its visible hyphen.
+      if (source[offset - 1] == '\u00AD') _endWithHyphen(first);
+      _HtmlBlock part(html_dom.Element e) => _HtmlBlock(
+            html: e.outerHtml,
+            text: e.text,
+            tag: block.tag,
+            element: e,
+          );
+      return (part(first), part(rest));
+    } finally {
+      painter.dispose();
+    }
+  }
+
+  /// Position in [source] (with soft hyphens) of [target] in [rendered]
+  /// (soft hyphens removed, "-" inserted at breaks). Mirrors how
+  /// SoftHyphenParagraph matches the two texts.
+  static int _sourceOffset(String source, String rendered, int target) {
+    var s = 0;
+    var r = 0;
+    while (r < target && s < source.length) {
+      if (source[s] == '\u00AD') {
+        if (r < rendered.length && rendered[r] == '-') r++;
+      } else {
+        r++;
+      }
+      s++;
+    }
+    return s;
+  }
+
+  /// Replaces the soft hyphen that ends [element]'s text with "-".
+  static void _endWithHyphen(html_dom.Element element) {
+    final texts = <html_dom.Text>[];
+    void collect(html_dom.Node node) {
+      for (final child in node.nodes) {
+        if (child is html_dom.Text) texts.add(child);
+        if (child is html_dom.Element) collect(child);
+      }
+    }
+
+    collect(element);
+    final last = texts.lastWhere(
+      (t) => t.data.isNotEmpty,
+      orElse: () => html_dom.Text(''),
+    );
+    if (last.data.endsWith('\u00AD')) {
+      last.data = '${last.data.substring(0, last.data.length - 1)}-';
+    }
+  }
+
+  /// Keeps only the text in `[start, end)` of [node], counted the way
+  /// [_buildSpans] counts it (text nodes, plus one character per `<br>`).
+  /// Returns the position after [node].
+  int _keepText(html_dom.Node node, int position, int start, int end) {
+    for (final child in node.nodes.toList()) {
+      if (child is html_dom.Text) {
+        final length = child.data.length;
+        final from = (start - position).clamp(0, length);
+        final to = (end - position).clamp(0, length);
+        if (from >= to) {
+          child.remove();
+        } else {
+          child.data = child.data.substring(from, to);
+        }
+        position += length;
+      } else if (child is html_dom.Element) {
+        if (child.localName?.toLowerCase() == 'br') {
+          if (position < start || position >= end) child.remove();
+          position += 1;
+        } else if (child.localName?.toLowerCase() != 'img') {
+          position = _keepText(child, position, start, end);
+        }
+      }
+    }
+    return position;
   }
 
   void _buildSpans(

@@ -442,23 +442,29 @@ class _PagingWidgetState extends State<PagingWidget> {
     return from;
   }
 
+  /// Text area of a page. Pages are measured and drawn with the same insets,
+  /// and these keep the text clear of the app bar (top) and the bottom bar,
+  /// which ShowEpub draws over the reader.
+  EdgeInsets get _pageInsets =>
+      EdgeInsets.fromLTRB(15.w, 50.h + 12.h, 15.w, 40.h + 12.h);
+
   List<String> _paginateItem(int index, Size pageSize, TextScaler scaler) {
     var html = widget.spine[index].htmlContent;
     if (widget.contentParser != null) {
       html = widget.contentParser!.resolveImagesInHtml(html);
     }
-    // Subtract space for headers and margins.
     final paginator = HtmlPaginator(
-      pageWidth: pageSize.width - 20.w,
-      pageHeight: pageSize.height - 150.h,
+      pageWidth: pageSize.width - _pageInsets.horizontal,
+      pageHeight: pageSize.height - _pageInsets.vertical,
       fontSize: _paginatedFontSize ?? 17.0,
       fontFamily: _paginatedFontFamily ?? '',
       fontPackage: 'cosmos_epub',
       textDirection: RTLHelper.getTextDirection(html),
       textScaler: scaler,
     );
-    // Soft hyphens go in AFTER pagination, so measurement is clean.
-    return paginator.paginate(html).map(_hyphenateHtml).toList();
+    // Soft hyphens go in BEFORE pagination: the paginator measures the text
+    // with its hyphens resolved, exactly as the page draws it.
+    return paginator.paginate(_hyphenateHtml(html));
   }
 
   Future<void> _paginate(int token) async {
@@ -660,6 +666,7 @@ class _PagingWidgetState extends State<PagingWidget> {
       accentColor: widget.accentColor,
       backgroundColor: widget.backgroundColor,
       onTextTap: widget.onTextTap,
+      padding: _pageInsets,
     );
   }
 
@@ -724,6 +731,9 @@ class _HighlightablePage extends StatefulWidget {
   final Color backgroundColor;
   final VoidCallback onTextTap;
 
+  /// Text area inside the page; must match what the page was measured for.
+  final EdgeInsets padding;
+
   const _HighlightablePage({
     super.key,
     required this.pageHtml,
@@ -734,6 +744,7 @@ class _HighlightablePage extends StatefulWidget {
     this.accentColor = Colors.indigoAccent,
     this.backgroundColor = Colors.white,
     required this.onTextTap,
+    required this.padding,
   });
 
   @override
@@ -794,12 +805,7 @@ class _HighlightablePageState extends State<_HighlightablePage> {
     return Container(
       color: widget.backgroundColor,
       child: Padding(
-        padding: EdgeInsets.only(
-          bottom: 40.h,
-          top: 15.h,
-          left: 15.w,
-          right: 15.w,
-        ),
+        padding: widget.padding,
         child: DefaultTextStyle(
           style: widget.style.copyWith(height: 1.4),
           child: Directionality(

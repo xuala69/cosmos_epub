@@ -28,10 +28,36 @@ class SoftHyphenParagraph extends StatelessWidget {
     this.onHighlight,
   });
 
+  /// [span] as it is drawn at [maxWidth]: soft hyphens become "-" at line
+  /// breaks and disappear elsewhere. The paginator measures this, so pages
+  /// are laid out with exactly the lines the paragraph renders.
+  static TextSpan resolveSoftHyphens(
+    TextSpan span,
+    double maxWidth, {
+    TextAlign textAlign = TextAlign.justify,
+    TextDirection textDirection = TextDirection.ltr,
+    TextScaler textScaler = TextScaler.noScaling,
+  }) =>
+      SoftHyphenParagraph(
+        textSpan: span,
+        textAlign: textAlign,
+        textDirection: textDirection,
+      )._resolve(span, maxWidth, textScaler);
+
+  TextSpan _resolve(TextSpan span, double maxWidth, TextScaler textScaler) {
+    final plainText = textSpan.toPlainText();
+    if (!plainText.contains('\u00AD')) return span;
+    if (maxWidth <= 0 || !maxWidth.isFinite) return _stripSoftHyphens(span);
+    final breakOffsets = _findBreakOffsets(plainText, maxWidth, textScaler);
+    return _verifyHyphens(
+        _resolveSpan(span, breakOffsets), maxWidth, textScaler);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final plainText = textSpan.toPlainText();
-    final hasShy = plainText.contains('\u00AD');
+    // Break positions must come from the same layout Text.rich renders,
+    // which applies the system text scale.
+    final textScaler = MediaQuery.textScalerOf(context);
 
     // Use LayoutBuilder to get exact width for hyphen resolution
     return LayoutBuilder(
@@ -46,16 +72,7 @@ class SoftHyphenParagraph extends StatelessWidget {
         }
 
         // Step 2: Resolve soft hyphens
-        TextSpan resolvedSpan;
-        if (hasShy && maxWidth > 0 && maxWidth.isFinite) {
-          final breakOffsets = _findBreakOffsets(plainText, maxWidth);
-          resolvedSpan = _resolveSpan(highlightedSpan, breakOffsets);
-          resolvedSpan = _verifyHyphens(resolvedSpan, maxWidth);
-        } else if (hasShy) {
-          resolvedSpan = _stripSoftHyphens(highlightedSpan);
-        } else {
-          resolvedSpan = highlightedSpan;
-        }
+        final resolvedSpan = _resolve(highlightedSpan, maxWidth, textScaler);
 
         // Step 3: Render as Text.rich (participates in parent SelectionArea)
         return Text.rich(
@@ -70,7 +87,8 @@ class SoftHyphenParagraph extends StatelessWidget {
 
   /// Second pass: lay out the resolved text and remove any "-" that
   /// ended up mid-line (not at a line break) after \u00AD removal shifted layout.
-  TextSpan _verifyHyphens(TextSpan resolved, double maxWidth) {
+  TextSpan _verifyHyphens(
+      TextSpan resolved, double maxWidth, TextScaler textScaler) {
     final resolvedText = resolved.toPlainText();
     if (!resolvedText.contains('-')) return resolved;
 
@@ -78,6 +96,7 @@ class SoftHyphenParagraph extends StatelessWidget {
       text: resolved,
       textAlign: textAlign,
       textDirection: textDirection,
+      textScaler: textScaler,
     );
     painter.layout(maxWidth: maxWidth);
 
@@ -158,11 +177,13 @@ class SoftHyphenParagraph extends StatelessWidget {
     return TextSpan(text: newText, style: span.style, children: newChildren);
   }
 
-  Set<int> _findBreakOffsets(String text, double maxWidth) {
+  Set<int> _findBreakOffsets(
+      String text, double maxWidth, TextScaler textScaler) {
     final painter = TextPainter(
       text: textSpan,
       textAlign: textAlign,
       textDirection: textDirection,
+      textScaler: textScaler,
     );
     painter.layout(maxWidth: maxWidth);
 
